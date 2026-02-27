@@ -47,6 +47,8 @@ $env:LLM_API_KEY="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 go run .\cmd\nibot
 ```
 
+提示：`LLM_BASE_URL` 不要包含反引号或空格；浏览器直接打开该地址显示 404 属于正常。`NVIDIA_API_KEY` 也可作为 `LLM_API_KEY` 的等价变量。
+
 #### 方法2：使用.env文件
 在 `workspace/.env` 中配置：
 ```bash

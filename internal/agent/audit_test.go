@@ -43,3 +43,36 @@ func TestLoop_WritesAuditToLogger(t *testing.T) {
 		t.Fatalf("expected fs.read audit, got: %s", s)
 	}
 }
+
+func TestRepositoryIntegrity_EntrypointPresent(t *testing.T) {
+	root := findRepoRoot(t)
+	required := []string{
+		filepath.Join(root, "cmd", "nibot", "main.go"),
+		filepath.Join(root, "cmd", "nibot", "main_test.go"),
+	}
+	for _, p := range required {
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("missing required file: %s (%v)", p, err)
+		}
+	}
+}
+
+func findRepoRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 50; i++ {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	t.Fatalf("repo root not found from %s", dir)
+	return ""
+}

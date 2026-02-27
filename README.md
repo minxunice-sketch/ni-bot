@@ -93,6 +93,12 @@ Ni bot 支持 OpenAI 兼容接口（含 NVIDIA NIM），以及 Ollama。
 
 ### NVIDIA NIM（moonshotai/kimi-k2.5）
 
+说明：
+
+- `LLM_BASE_URL` 不要包含反引号或空格
+- 直接在浏览器打开 `https://integrate.api.nvidia.com/v1` 显示 404 属于正常（API 请求会带具体路径）
+- `LLM_API_KEY` 也可用等价变量 `NVIDIA_API_KEY`
+
 Windows（PowerShell）：
 
 ```powershell

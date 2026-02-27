@@ -1,7 +1,7 @@
 # Build artifacts
 bin/
-nibot.exe
-nibot
+/nibot.exe
+/nibot
 *.exe
 *.dll
 *.so
@@ -29,6 +29,7 @@ node_modules/
 
 # Workspace files (sensitive data)
 workspace/logs/
+workspace/data/sessions/
 workspace/data/*.toml
 workspace/data/*.json
 workspace/memory/
@@ -72,4 +73,3 @@ env/
 # Misc
 .terraform/
 .ruby-version
-
