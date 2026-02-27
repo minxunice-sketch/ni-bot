@@ -1,0 +1,77 @@
+# Build artifacts
+bin/
+nibot.exe
+nibot
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go specific
+vendor/
+go.sum
+
+# Dependency directories
+node_modules/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment and config files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Workspace files (sensitive data)
+workspace/logs/
+workspace/data/*.toml
+workspace/data/*.json
+workspace/memory/
+workspace/.env.*
+
+# API keys and secrets
+*.key
+*.pem
+*.crt
+*.cert
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+
+# Logs
+*.log
+logs/
+
+# Coverage reports
+coverage/
+htmlcov/
+.coverage
+
+# Binaries for programs and plugins
+*.class
+
+# Virtual environment
+venv/
+env/
+
+# Misc
+.terraform/
+.ruby-version
+
+

@@ -1,0 +1,14 @@
+allow_fs_write = true
+allow_runtime_exec = true
+allow_skill_exec = true
+
+require_approval_fs_write = true
+require_approval_runtime_exec = true
+require_approval_skill_exec = true
+
+allowed_runtime_prefixes = "go,git"
+
+allowed_write_prefixes = "memory/,skills/,logs/"
+allowed_skill_names = "*"
+allowed_skill_scripts = "*"
+
