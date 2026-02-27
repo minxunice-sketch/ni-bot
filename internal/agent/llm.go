@@ -441,6 +441,104 @@ func (c *LLMClient) openAIToolsForPolicy() []openAITool {
 		})
 	}
 
+	if p.AllowsTool("install_skill") {
+		tools = append(tools, openAITool{
+			Type: "function",
+			Function: openAIFunctionDef{
+				Name:        "install_skill",
+				Description: "Install skills from a https:// git repository into Ni bot workspace skills directory",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"name":  map[string]any{"type": "string"},
+						"url":   map[string]any{"type": "string"},
+						"layer": map[string]any{"type": "string", "enum": []string{"upstream", "local"}},
+					},
+					"required": []string{"name", "url"},
+				},
+			},
+		})
+	}
+
+	if p.AllowsTool("memory.store") {
+		tools = append(tools, openAITool{
+			Type: "function",
+			Function: openAIFunctionDef{
+				Name:        "memory.store",
+				Description: "Store a long-term memory item (SQLite memory DB must be enabled)",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"scope":   map[string]any{"type": "string"},
+						"tags":    map[string]any{"type": "string"},
+						"content": map[string]any{"type": "string"},
+					},
+					"required": []string{"content"},
+				},
+			},
+		})
+	}
+	if p.AllowsTool("memory.recall") {
+		tools = append(tools, openAITool{
+			Type: "function",
+			Function: openAIFunctionDef{
+				Name:        "memory.recall",
+				Description: "Search long-term memories by keyword match (SQLite memory DB must be enabled)",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"scope": map[string]any{"type": "string"},
+						"query": map[string]any{"type": "string"},
+						"limit": map[string]any{"type": "integer"},
+					},
+					"required": []string{"query"},
+				},
+			},
+		})
+	}
+	if p.AllowsTool("memory.forget") {
+		tools = append(tools, openAITool{
+			Type: "function",
+			Function: openAIFunctionDef{
+				Name:        "memory.forget",
+				Description: "Delete a memory item by id (SQLite memory DB must be enabled)",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"id": map[string]any{"type": "integer"},
+					},
+					"required": []string{"id"},
+				},
+			},
+		})
+	}
+	if p.AllowsTool("memory.list") {
+		tools = append(tools, openAITool{
+			Type: "function",
+			Function: openAIFunctionDef{
+				Name:        "memory.list",
+				Description: "List recent memory items (SQLite memory DB must be enabled)",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"scope": map[string]any{"type": "string"},
+						"limit": map[string]any{"type": "integer"},
+					},
+				},
+			},
+		})
+	}
+	if p.AllowsTool("memory.stats") {
+		tools = append(tools, openAITool{
+			Type: "function",
+			Function: openAIFunctionDef{
+				Name:        "memory.stats",
+				Description: "Show memory database stats (SQLite memory DB must be enabled)",
+				Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
+			},
+		})
+	}
+
 	if p.AllowsTool("shell_exec") {
 		tools = append(tools, openAITool{
 			Type: "function",
@@ -492,7 +590,11 @@ func (c *LLMClient) Loop(inputReader io.Reader, outputWriter io.Writer, logger *
 	defer stopAutoReload()
 	defer c.persistSessionOnExit()
 	
-	fmt.Fprintln(outputWriter, "\n> Ni bot initialized. Type your request (or 'exit' to quit):")
+	v := strings.TrimSpace(os.Getenv("NIBOT_VERSION"))
+	if v == "" {
+		v = "dev"
+	}
+	fmt.Fprintf(outputWriter, "\n> Ni bot initialized (%s). Type your request (or 'exit' to quit):\n", v)
 	fmt.Fprint(outputWriter, "> ")
 
 	for scanner.Scan() {
@@ -506,6 +608,39 @@ func (c *LLMClient) Loop(inputReader io.Reader, outputWriter io.Writer, logger *
 		switch cmd {
 		case "exit", "quit":
 			return
+		case "version", "/version":
+			fmt.Fprintf(outputWriter, "\n%s\n", v)
+			fmt.Fprint(outputWriter, "\n> ")
+			continue
+		case "update", "/update":
+			yes := false
+			for _, t := range tokens[1:] {
+				tt := strings.ToLower(strings.TrimSpace(t))
+				if tt == "-y" || tt == "--yes" {
+					yes = true
+				}
+			}
+			if !yes && stdinIsTerminal() {
+				fmt.Fprint(outputWriter, "\n将执行 git pull + go mod tidy + go build（不会覆盖 workspace 数据）。继续？(y/n): ")
+				if !scanner.Scan() {
+					fmt.Fprint(outputWriter, "\n> ")
+					continue
+				}
+				ans := strings.ToLower(strings.TrimSpace(scanner.Text()))
+				if ans != "y" && ans != "yes" {
+					fmt.Fprint(outputWriter, "\n已取消。\n\n> ")
+					continue
+				}
+			} else if !yes {
+				fmt.Fprint(outputWriter, "\n用法：update --yes\n\n> ")
+				continue
+			}
+			if err := runSelfUpdate(outputWriter); err != nil {
+				fmt.Fprintf(outputWriter, "\n更新失败：%v\n\n> ", err)
+				continue
+			}
+			fmt.Fprint(outputWriter, "\n✅ 更新完成。\n\n> ")
+			continue
 		case "reload", "/reload":
 			systemPrompt, err := ConstructSystemPrompt(c.Workspace)
 			if err != nil {

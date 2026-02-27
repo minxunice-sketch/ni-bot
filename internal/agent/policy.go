@@ -12,9 +12,13 @@ type ToolPolicy struct {
 	AllowFSWrite      bool
 	AllowRuntimeExec  bool
 	AllowSkillExec    bool
+	AllowSkillInstall bool
+	AllowMemory       bool
 	RequireFSWrite    bool
 	RequireRuntimeExec bool
 	RequireSkillExec  bool
+	RequireSkillInstall bool
+	RequireMemory     bool
 
 	AllowedRuntimePrefixes []string
 	AllowedWritePrefixes   []string
@@ -28,9 +32,13 @@ func DefaultToolPolicy() ToolPolicy {
 		AllowFSWrite:       true,
 		AllowRuntimeExec:   true,
 		AllowSkillExec:     true,
+		AllowSkillInstall:  true,
+		AllowMemory:        true,
 		RequireFSWrite:     true,
 		RequireRuntimeExec: true,
 		RequireSkillExec:   true,
+		RequireSkillInstall: true,
+		RequireMemory:      true,
 		AllowedWritePrefixes: []string{"memory/", "skills/", "logs/"},
 	}
 }
@@ -48,6 +56,12 @@ func LoadToolPolicy(workspace string) ToolPolicy {
 		if filePolicy.AllowSkillExec != nil {
 			p.AllowSkillExec = *filePolicy.AllowSkillExec
 		}
+		if filePolicy.AllowSkillInstall != nil {
+			p.AllowSkillInstall = *filePolicy.AllowSkillInstall
+		}
+		if filePolicy.AllowMemory != nil {
+			p.AllowMemory = *filePolicy.AllowMemory
+		}
 		if filePolicy.RequireFSWrite != nil {
 			p.RequireFSWrite = *filePolicy.RequireFSWrite
 		}
@@ -56,6 +70,12 @@ func LoadToolPolicy(workspace string) ToolPolicy {
 		}
 		if filePolicy.RequireSkillExec != nil {
 			p.RequireSkillExec = *filePolicy.RequireSkillExec
+		}
+		if filePolicy.RequireSkillInstall != nil {
+			p.RequireSkillInstall = *filePolicy.RequireSkillInstall
+		}
+		if filePolicy.RequireMemory != nil {
+			p.RequireMemory = *filePolicy.RequireMemory
 		}
 		if len(filePolicy.AllowedRuntimePrefixes) > 0 {
 			p.AllowedRuntimePrefixes = filePolicy.AllowedRuntimePrefixes
@@ -91,6 +111,10 @@ func (p ToolPolicy) AllowsTool(tool string) bool {
 		return p.AllowRuntimeExec
 	case "skill.exec", "skill_exec":
 		return p.AllowSkillExec
+	case "skills.install", "install_skill", "skill_store_install":
+		return p.AllowSkillInstall
+	case "memory.store", "memory.recall", "memory.forget", "memory.list", "memory.stats":
+		return p.AllowMemory
 	default:
 		return true
 	}
@@ -104,6 +128,10 @@ func (p ToolPolicy) RequiresApproval(tool string) bool {
 		return p.RequireRuntimeExec
 	case "skill.exec", "skill_exec":
 		return p.RequireSkillExec
+	case "skills.install", "install_skill", "skill_store_install":
+		return p.RequireSkillInstall
+	case "memory.store", "memory.recall", "memory.forget", "memory.list", "memory.stats":
+		return p.RequireMemory
 	default:
 		return false
 	}
@@ -189,9 +217,13 @@ type policyFile struct {
 	AllowFSWrite       *bool
 	AllowRuntimeExec   *bool
 	AllowSkillExec     *bool
+	AllowSkillInstall  *bool
+	AllowMemory        *bool
 	RequireFSWrite     *bool
 	RequireRuntimeExec *bool
 	RequireSkillExec   *bool
+	RequireSkillInstall *bool
+	RequireMemory      *bool
 	AllowedRuntimePrefixes []string
 	AllowedWritePrefixes   []string
 	AllowedSkillNames      []string
@@ -234,6 +266,12 @@ func readPolicyToml(path string) (policyFile, bool) {
 		case "allow_skill_exec":
 			b := parseBool(val, true)
 			pf.AllowSkillExec = &b
+		case "allow_skill_install":
+			b := parseBool(val, true)
+			pf.AllowSkillInstall = &b
+		case "allow_memory":
+			b := parseBool(val, true)
+			pf.AllowMemory = &b
 		case "require_approval_fs_write":
 			b := parseBool(val, true)
 			pf.RequireFSWrite = &b
@@ -243,6 +281,12 @@ func readPolicyToml(path string) (policyFile, bool) {
 		case "require_approval_skill_exec":
 			b := parseBool(val, true)
 			pf.RequireSkillExec = &b
+		case "require_approval_skill_install":
+			b := parseBool(val, true)
+			pf.RequireSkillInstall = &b
+		case "require_approval_memory":
+			b := parseBool(val, true)
+			pf.RequireMemory = &b
 		case "allowed_runtime_prefixes":
 			pf.AllowedRuntimePrefixes = splitCSV(val)
 		case "allowed_write_prefixes":
@@ -254,8 +298,8 @@ func readPolicyToml(path string) (policyFile, bool) {
 		}
 	}
 
-	if pf.AllowFSWrite == nil && pf.AllowRuntimeExec == nil && pf.AllowSkillExec == nil &&
-		pf.RequireFSWrite == nil && pf.RequireRuntimeExec == nil && pf.RequireSkillExec == nil &&
+	if pf.AllowFSWrite == nil && pf.AllowRuntimeExec == nil && pf.AllowSkillExec == nil && pf.AllowSkillInstall == nil && pf.AllowMemory == nil &&
+		pf.RequireFSWrite == nil && pf.RequireRuntimeExec == nil && pf.RequireSkillExec == nil && pf.RequireSkillInstall == nil && pf.RequireMemory == nil &&
 		len(pf.AllowedRuntimePrefixes) == 0 && len(pf.AllowedWritePrefixes) == 0 &&
 		len(pf.AllowedSkillNames) == 0 && len(pf.AllowedSkillScripts) == 0 {
 		return policyFile{}, false
@@ -286,4 +330,3 @@ func splitCSV(s string) []string {
 	}
 	return out
 }
-

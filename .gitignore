@@ -26,12 +26,16 @@ node_modules/
 .env.development.local
 .env.test.local
 .env.production.local
+config/config.yaml
+config/config.yml
 
 # Workspace files (sensitive data)
 workspace/logs/
 workspace/data/sessions/
 workspace/data/*.toml
 workspace/data/*.json
+workspace/data/*.yaml
+workspace/data/*.yml
 workspace/data/*.db
 workspace/memory/
 workspace/.env.*

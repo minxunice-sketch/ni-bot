@@ -172,6 +172,42 @@ func executeOne(ctx ExecContext, call ExecCall) ToolResult {
 			return ToolResult{Tool: call.Tool, OK: false, Error: err.Error(), Output: out}
 		}
 		return ToolResult{Tool: call.Tool, OK: true, Output: out}
+	case "memory.store":
+		out, err := toolMemoryStore(ctx, call.ArgsRaw)
+		if err != nil {
+			return ToolResult{Tool: call.Tool, OK: false, Error: err.Error(), Output: out}
+		}
+		return ToolResult{Tool: call.Tool, OK: true, Output: out}
+	case "memory.recall":
+		out, err := toolMemoryRecall(ctx, call.ArgsRaw)
+		if err != nil {
+			return ToolResult{Tool: call.Tool, OK: false, Error: err.Error(), Output: out}
+		}
+		return ToolResult{Tool: call.Tool, OK: true, Output: out}
+	case "memory.forget":
+		out, err := toolMemoryForget(ctx, call.ArgsRaw)
+		if err != nil {
+			return ToolResult{Tool: call.Tool, OK: false, Error: err.Error(), Output: out}
+		}
+		return ToolResult{Tool: call.Tool, OK: true, Output: out}
+	case "memory.list":
+		out, err := toolMemoryList(ctx, call.ArgsRaw)
+		if err != nil {
+			return ToolResult{Tool: call.Tool, OK: false, Error: err.Error(), Output: out}
+		}
+		return ToolResult{Tool: call.Tool, OK: true, Output: out}
+	case "memory.stats":
+		out, err := toolMemoryStats(ctx, call.ArgsRaw)
+		if err != nil {
+			return ToolResult{Tool: call.Tool, OK: false, Error: err.Error(), Output: out}
+		}
+		return ToolResult{Tool: call.Tool, OK: true, Output: out}
+	case "skills.install", "install_skill", "skill_store_install":
+		out, err := toolInstallSkill(ctx, call.ArgsRaw)
+		if err != nil {
+			return ToolResult{Tool: call.Tool, OK: false, Error: err.Error(), Output: out}
+		}
+		return ToolResult{Tool: call.Tool, OK: true, Output: out}
 	case "runtime.exec", "shell_exec":
 		if !ctx.Policy.AllowsTool(call.Tool) {
 			return ToolResult{Tool: call.Tool, OK: false, Error: "disabled by policy"}
@@ -220,6 +256,7 @@ func toolFSRead(ctx ExecContext, argsRaw string) (string, error) {
 		path = strings.TrimSpace(argsRaw)
 	}
 
+	path = normalizeWorkspaceRelPath(path)
 	if path == "" {
 		return "", fmt.Errorf("fs.read requires path")
 	}
@@ -262,6 +299,7 @@ func toolFSWrite(ctx ExecContext, argsRaw string) (string, error) {
 	if err := json.Unmarshal([]byte(argsRaw), &a); err != nil {
 		return "", fmt.Errorf("invalid JSON args for fs.write: %w", err)
 	}
+	a.Path = normalizeWorkspaceRelPath(a.Path)
 	if a.Path == "" {
 		return "", fmt.Errorf("fs.write requires path")
 	}
@@ -342,9 +380,6 @@ type runtimeExecArgs struct {
 }
 
 func toolRuntimeExec(ctx ExecContext, argsRaw string) (string, error) {
-	if os.Getenv("NIBOT_ENABLE_EXEC") != "1" {
-		return "", fmt.Errorf("runtime.exec disabled (set NIBOT_ENABLE_EXEC=1 to enable)")
-	}
 	if !strings.HasPrefix(strings.TrimSpace(argsRaw), "{") {
 		return "", fmt.Errorf("runtime.exec requires JSON args: {\"command\":\"...\",\"timeoutSeconds\":10}")
 	}
@@ -354,6 +389,9 @@ func toolRuntimeExec(ctx ExecContext, argsRaw string) (string, error) {
 	}
 	if strings.TrimSpace(a.Command) == "" {
 		return "", fmt.Errorf("runtime.exec requires command")
+	}
+	if os.Getenv("NIBOT_ENABLE_EXEC") != "1" && !isSafeRuntimeCommandWhenExecDisabled(a.Command) {
+		return "", fmt.Errorf("runtime.exec disabled (set NIBOT_ENABLE_EXEC=1 to enable)")
 	}
 	if !ctx.Policy.AllowsRuntimeCommand(a.Command) {
 		return "", fmt.Errorf("runtime.exec command denied by policy")
@@ -430,11 +468,101 @@ func runWithTimeout(cmd *exec.Cmd, timeout time.Duration) error {
 	}
 }
 
+func normalizeWorkspaceRelPath(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return p
+	}
+	if filepath.IsAbs(p) {
+		return p
+	}
+	s := filepath.ToSlash(p)
+	s = strings.TrimLeft(s, "/")
+	for {
+		l := strings.ToLower(s)
+		if strings.HasPrefix(l, "workspace/") {
+			s = strings.TrimLeft(s[len("workspace/"):], "/")
+			continue
+		}
+		break
+	}
+	return s
+}
+
+func containsShellMeta(s string) bool {
+	return strings.ContainsAny(s, ";&|`$><\n\r")
+}
+
+func isSafeRuntimeCommandWhenExecDisabled(command string) bool {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return false
+	}
+	if containsShellMeta(command) {
+		return false
+	}
+	tokens := splitCommandLine(command)
+	if len(tokens) == 0 {
+		return false
+	}
+	first := strings.ToLower(strings.TrimSpace(tokens[0]))
+
+	switch first {
+	case "ls":
+		for _, a := range tokens[1:] {
+			a = strings.TrimSpace(a)
+			if a == "" {
+				continue
+			}
+			if strings.HasPrefix(a, "-") {
+				continue
+			}
+			if filepath.IsAbs(a) || strings.Contains(a, "..") || strings.HasPrefix(a, "~") {
+				return false
+			}
+		}
+		return true
+	case "dir":
+		for _, a := range tokens[1:] {
+			a = strings.TrimSpace(a)
+			if a == "" {
+				continue
+			}
+			if filepath.IsAbs(a) || strings.Contains(a, "..") || strings.HasPrefix(a, "~") {
+				return false
+			}
+		}
+		return true
+	case "git":
+		if len(tokens) != 4 {
+			return false
+		}
+		if strings.ToLower(strings.TrimSpace(tokens[1])) != "clone" {
+			return false
+		}
+		url := strings.TrimSpace(tokens[2])
+		dest := strings.TrimSpace(tokens[3])
+		if !isSafeGitURL(url) {
+			return false
+		}
+		if dest == "" || filepath.IsAbs(dest) || strings.Contains(dest, "..") || strings.HasPrefix(dest, "~") {
+			return false
+		}
+		dest = filepath.ToSlash(dest)
+		if !strings.HasPrefix(strings.ToLower(dest), "skills/") {
+			return false
+		}
+		return true
+	default:
+		return false
+	}
+}
+
 func resolveWorkspacePath(workspace string, p string) (string, error) {
 	if strings.Contains(p, "\x00") {
 		return "", fmt.Errorf("invalid path")
 	}
-	p = strings.TrimSpace(p)
+	p = normalizeWorkspaceRelPath(p)
 	if p == "" {
 		return "", fmt.Errorf("empty path")
 	}
@@ -465,6 +593,258 @@ func resolveWorkspacePath(workspace string, p string) (string, error) {
 		return "", fmt.Errorf("path escapes workspace")
 	}
 	return targetAbs, nil
+}
+
+type installSkillArgs struct {
+	Name  string `json:"name"`
+	URL   string `json:"url"`
+	Layer string `json:"layer"`
+}
+
+func toolInstallSkill(ctx ExecContext, argsRaw string) (string, error) {
+	if !strings.HasPrefix(strings.TrimSpace(argsRaw), "{") {
+		return "", fmt.Errorf("install_skill requires JSON args: {\"name\":\"evomap\",\"url\":\"https://...\",\"layer\":\"upstream\"}")
+	}
+	var a installSkillArgs
+	if err := json.Unmarshal([]byte(argsRaw), &a); err != nil {
+		return "", fmt.Errorf("invalid JSON args for install_skill: %w", err)
+	}
+	a.Name = strings.TrimSpace(a.Name)
+	a.URL = strings.TrimSpace(a.URL)
+	a.Layer = strings.ToLower(strings.TrimSpace(a.Layer))
+	if a.Layer == "" {
+		a.Layer = "upstream"
+	}
+	if a.Name == "" {
+		return "", fmt.Errorf("install_skill requires name")
+	}
+	if a.URL == "" {
+		return "", fmt.Errorf("install_skill requires url (https://...)")
+	}
+	if !isSafeGitURL(a.URL) {
+		return "", fmt.Errorf("install_skill denied: only https:// URLs are allowed")
+	}
+
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		return "", fmt.Errorf("git not found in PATH")
+	}
+
+	tmp := filepath.Join(os.TempDir(), "nibot_skill_git_"+safeBaseName(a.URL))
+	_ = os.RemoveAll(tmp)
+	if err := os.MkdirAll(tmp, 0o755); err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(tmp)
+
+	cmd := exec.Command(gitPath, "clone", "--depth", "1", a.URL, tmp)
+	cmd.Dir = ctx.Workspace
+	if err := runWithTimeout(cmd, 3*time.Minute); err != nil {
+		return "", fmt.Errorf("git clone failed: %w", err)
+	}
+
+	installed, err := InstallSkillsFromPathWithOrigin(ctx.Workspace, tmp, a.URL, a.Layer)
+	if err != nil {
+		return "", err
+	}
+	return "installed skills: " + strings.Join(installed, ", "), nil
+}
+
+type memoryStoreArgs struct {
+	Scope   string `json:"scope"`
+	Tags    string `json:"tags"`
+	Content string `json:"content"`
+}
+
+func toolMemoryStore(ctx ExecContext, argsRaw string) (string, error) {
+	if !strings.HasPrefix(strings.TrimSpace(argsRaw), "{") {
+		return "", fmt.Errorf("memory.store requires JSON args: {\"scope\":\"global\",\"tags\":\"...\",\"content\":\"...\"}")
+	}
+	var a memoryStoreArgs
+	if err := json.Unmarshal([]byte(argsRaw), &a); err != nil {
+		return "", fmt.Errorf("invalid JSON args for memory.store: %w", err)
+	}
+	a.Scope = stringsTrimSpace(a.Scope)
+	if a.Scope == "" {
+		a.Scope = "global"
+	}
+	a.Tags = stringsTrimSpace(a.Tags)
+	a.Content = stringsTrimSpace(a.Content)
+	if a.Content == "" {
+		return "", fmt.Errorf("memory.store requires content")
+	}
+	a.Content = redactSecrets(a.Content)
+
+	s, err := OpenSQLiteStore(ctx.Workspace)
+	if err != nil {
+		return "", err
+	}
+	if s == nil {
+		return "", fmt.Errorf("memory db disabled (set NIBOT_MEMORY_DB=sqlite or NIBOT_STORAGE=sqlite)")
+	}
+	defer s.Close()
+
+	id, err := s.InsertMemory(a.Scope, a.Tags, a.Content)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("stored memory id=%d scope=%s", id, a.Scope), nil
+}
+
+type memoryRecallArgs struct {
+	Scope string `json:"scope"`
+	Query string `json:"query"`
+	Limit int    `json:"limit"`
+}
+
+func toolMemoryRecall(ctx ExecContext, argsRaw string) (string, error) {
+	if !strings.HasPrefix(strings.TrimSpace(argsRaw), "{") {
+		return "", fmt.Errorf("memory.recall requires JSON args: {\"query\":\"...\",\"scope\":\"global\",\"limit\":10}")
+	}
+	var a memoryRecallArgs
+	if err := json.Unmarshal([]byte(argsRaw), &a); err != nil {
+		return "", fmt.Errorf("invalid JSON args for memory.recall: %w", err)
+	}
+	a.Scope = stringsTrimSpace(a.Scope)
+	a.Query = stringsTrimSpace(a.Query)
+	if a.Query == "" {
+		return "", fmt.Errorf("memory.recall requires query")
+	}
+
+	s, err := OpenSQLiteStore(ctx.Workspace)
+	if err != nil {
+		return "", err
+	}
+	if s == nil {
+		return "", fmt.Errorf("memory db disabled (set NIBOT_MEMORY_DB=sqlite or NIBOT_STORAGE=sqlite)")
+	}
+	defer s.Close()
+
+	items, err := s.SearchMemories(a.Scope, a.Query, a.Limit)
+	if err != nil {
+		return "", err
+	}
+	if len(items) == 0 {
+		return "(no matches)", nil
+	}
+	var sb strings.Builder
+	for _, it := range items {
+		sb.WriteString(fmt.Sprintf("- id=%d scope=%s tags=%s: %s\n", it.ID, it.Scope, it.Tags, previewText(it.Content, 240)))
+	}
+	return strings.TrimRight(sb.String(), "\n"), nil
+}
+
+type memoryForgetArgs struct {
+	ID int64 `json:"id"`
+}
+
+func toolMemoryForget(ctx ExecContext, argsRaw string) (string, error) {
+	if !strings.HasPrefix(strings.TrimSpace(argsRaw), "{") {
+		return "", fmt.Errorf("memory.forget requires JSON args: {\"id\":123}")
+	}
+	var a memoryForgetArgs
+	if err := json.Unmarshal([]byte(argsRaw), &a); err != nil {
+		return "", fmt.Errorf("invalid JSON args for memory.forget: %w", err)
+	}
+	if a.ID <= 0 {
+		return "", fmt.Errorf("memory.forget requires id")
+	}
+
+	s, err := OpenSQLiteStore(ctx.Workspace)
+	if err != nil {
+		return "", err
+	}
+	if s == nil {
+		return "", fmt.Errorf("memory db disabled (set NIBOT_MEMORY_DB=sqlite or NIBOT_STORAGE=sqlite)")
+	}
+	defer s.Close()
+
+	if err := s.DeleteMemory(a.ID); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("deleted memory id=%d", a.ID), nil
+}
+
+type memoryListArgs struct {
+	Scope string `json:"scope"`
+	Limit int    `json:"limit"`
+}
+
+func toolMemoryList(ctx ExecContext, argsRaw string) (string, error) {
+	scope := ""
+	limit := 50
+	if strings.TrimSpace(argsRaw) != "" {
+		if !strings.HasPrefix(strings.TrimSpace(argsRaw), "{") {
+			return "", fmt.Errorf("memory.list requires JSON args: {\"scope\":\"global\",\"limit\":50}")
+		}
+		var a memoryListArgs
+		if err := json.Unmarshal([]byte(argsRaw), &a); err != nil {
+			return "", fmt.Errorf("invalid JSON args for memory.list: %w", err)
+		}
+		scope = stringsTrimSpace(a.Scope)
+		if a.Limit > 0 {
+			limit = a.Limit
+		}
+	}
+
+	s, err := OpenSQLiteStore(ctx.Workspace)
+	if err != nil {
+		return "", err
+	}
+	if s == nil {
+		return "", fmt.Errorf("memory db disabled (set NIBOT_MEMORY_DB=sqlite or NIBOT_STORAGE=sqlite)")
+	}
+	defer s.Close()
+
+	items, err := s.ListMemories(scope, limit)
+	if err != nil {
+		return "", err
+	}
+	if len(items) == 0 {
+		return "(empty)", nil
+	}
+	var sb strings.Builder
+	for _, it := range items {
+		sb.WriteString(fmt.Sprintf("- id=%d scope=%s tags=%s: %s\n", it.ID, it.Scope, it.Tags, previewText(it.Content, 200)))
+	}
+	return strings.TrimRight(sb.String(), "\n"), nil
+}
+
+func toolMemoryStats(ctx ExecContext, argsRaw string) (string, error) {
+	_ = argsRaw
+	s, err := OpenSQLiteStore(ctx.Workspace)
+	if err != nil {
+		return "", err
+	}
+	if s == nil {
+		return "", fmt.Errorf("memory db disabled (set NIBOT_MEMORY_DB=sqlite or NIBOT_STORAGE=sqlite)")
+	}
+	defer s.Close()
+
+	n, err := s.MemoryStats()
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("memories=%d", n), nil
+}
+
+func previewText(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	s = strings.Join(strings.Fields(s), " ")
+	if max <= 0 {
+		max = 200
+	}
+	if len([]byte(s)) <= max {
+		return s
+	}
+	b := []byte(s)
+	if max > len(b) {
+		max = len(b)
+	}
+	return string(b[:max]) + "..."
 }
 
 type skillExecArgs struct {

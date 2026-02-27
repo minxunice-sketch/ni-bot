@@ -27,13 +27,25 @@ func (s *stringListFlag) Set(value string) error {
 	return nil
 }
 
+var Version = "dev"
+
 func main() {
 	var workspaceFlag string
 	var cmds stringListFlag
+	var showVersion bool
 
 	flag.StringVar(&workspaceFlag, "workspace", "", "Workspace directory (default: ./workspace)")
 	flag.Var(&cmds, "cmd", "Non-interactive mode: run a command and exit (repeatable)")
+	flag.BoolVar(&showVersion, "version", false, "Print version and exit")
 	flag.Parse()
+
+	if showVersion {
+		fmt.Println(Version)
+		return
+	}
+	if strings.TrimSpace(os.Getenv("NIBOT_VERSION")) == "" {
+		_ = os.Setenv("NIBOT_VERSION", Version)
+	}
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -47,6 +59,10 @@ func main() {
 	}
 	log.Printf("Starting Ni bot in workspace: %s", workspace)
 
+	if err := agent.EnsureWorkspaceScaffold(workspace); err != nil {
+		log.Fatalf("Failed to initialize workspace: %v", err)
+	}
+
 	// Initialize health monitor
 	healthPort := 0
 	if portStr, ok := os.LookupEnv("NIBOT_HEALTH_PORT"); ok {
@@ -56,6 +72,11 @@ func main() {
 	}
 	healthMonitor := agent.NewHealthMonitor(healthPort)
 	defer healthMonitor.Shutdown()
+
+	interactive := stdinIsTerminal() && len(cmds) == 0
+	if err := agent.EnsureConfig(workspace, interactive, os.Stdout); err != nil {
+		log.Fatalf("Failed to initialize config: %v", err)
+	}
 
 	cfg := agent.LoadConfig(workspace)
 	log.Printf("Loaded Config: Provider=%s, Model=%s, LogLevel=%s", cfg.Provider, cfg.ModelName, cfg.LogLevel)
@@ -116,4 +137,12 @@ func writeLog(f *os.File, content string) {
 	if _, err := f.WriteString(content); err != nil {
 		log.Printf("Failed to write to session log: %v", err)
 	}
+}
+
+func stdinIsTerminal() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return (fi.Mode() & os.ModeCharDevice) != 0
 }

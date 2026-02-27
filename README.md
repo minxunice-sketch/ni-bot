@@ -91,6 +91,24 @@ Ni bot 支持 OpenAI 兼容接口（含 NVIDIA NIM），以及 Ollama。
 
 注意：不要在终端/截图/日志里粘贴完整 API Key。Ni bot 会对常见 key/token 做脱敏，但仍建议只展示前后各 4 位用于排障。
 
+### 自动生成配置文件（推荐）
+
+为减少新手在 macOS/Linux 上手动配置出错，Ni bot 启动时会自动检查并生成 `workspace/data/config.yaml`：
+
+- 交互模式（直接运行）：若缺失配置文件，会在终端引导你填写 provider/base_url/model/api_key（可回车使用默认值）
+- 非交互模式（带 `-cmd`）：若缺失配置文件，会生成一个可编辑的模板（不会阻塞等待输入）
+
+配置读取优先级：
+
+1. 环境变量（最高优先级，便于临时切换与部署）
+2. `workspace/data/config.yaml`
+3. `workspace/data/config.toml`（历史兼容）
+
+提示：
+
+- 使用 `openai` provider 时，建议显式填写 `base_url`（程序不会再默认尝试 `api.openai.com`）
+- `workspace/data/` 下的配置文件属于敏感数据目录，不要提交到仓库
+
 ### 可选特性配置
 
 #### 原生 Tool Calling
@@ -179,6 +197,15 @@ go run ./cmd/nibot
 
 不设置 `LLM_API_KEY` 即进入 Mock 模式，可用于验证工具调用闭环（fs.read/fs.write 等）。
 
+### 快速排查（常见报错）
+
+| 现象 | 常见原因 | 解决方法 |
+|---|---|---|
+| `i/o timeout` / 请求超时 | `base_url` 配错、网络不可达、误连到默认 OpenAI 地址 | 检查 `LLM_BASE_URL` / `workspace/data/config.yaml` 的 `base_url`；确认网络可访问对应域名 |
+| 浏览器打开 `https://integrate.api.nvidia.com/v1` 显示 404 | 这是正常现象（缺少具体 API 路径） | 保持 `base_url` 为该值即可，实际请求会带上 `/chat/completions` 等路径 |
+| `no such file or directory`（logs/memory 等） | workspace 目录结构不完整 | 升级到最新版（启动时会自动创建 `workspace/logs`、`workspace/memory` 等目录） |
+| `permission denied` | 脚本/文件权限不足（常见于 macOS/Linux） | 对脚本 `chmod +x`，或确保 workspace 目录可写 |
+
 ## Workspace 结构
 
 - `workspace/AGENT.md`：身份（人格与工作循环）
@@ -238,6 +265,25 @@ Ni bot 支持完整的会话持久化功能：
 - 支持会话级别的工具调用审批跟踪
 
 可选：设置 `NIBOT_STORAGE=sqlite` 后，会额外写入 `workspace/data/nibot.db`（会话元数据、消息与工具审计），同时仍保留 `workspace/logs/*.md` 审计日志。
+
+### 长期记忆库（SQLite）
+
+为避免长期把所有 `workspace/memory/*.md` 全量注入导致 prompt 变大，Ni bot 提供一个可选的 SQLite 记忆库（结构化存储 + 按需检索）。
+
+启用方式（两者任一即可）：
+
+- `NIBOT_MEMORY_DB=sqlite`
+- 或复用会话存储：`NIBOT_STORAGE=sqlite`
+
+启用后会写入同一个数据库文件：`workspace/data/nibot.db`（已被 `.gitignore` 忽略）。
+
+可用工具：
+
+- `memory.store`：写入一条长期记忆（会自动对常见 key/token 做脱敏）
+- `memory.recall`：按关键词检索（当前为轻量 LIKE 检索；后续可升级为 FTS/混合检索）
+- `memory.forget`：按 id 删除
+- `memory.list`：列出最近记录
+- `memory.stats`：统计信息
 
 ### 健康监控
 
@@ -385,6 +431,7 @@ Ni bot 在发现/展示技能时，会自动读取以下任一元数据文件（
 在 `>` 提示符下可用：
 
 - `help` / `/help` / `?`：显示帮助
+- `version` / `/version`：显示版本号
 - `skills` / `/skills`：列出可用技能脚本
 - `skills show <name>`：查看单个技能的文档与脚本
 - `skills search <keyword>`：按关键词搜索技能
@@ -394,8 +441,15 @@ Ni bot 在发现/展示技能时，会自动读取以下任一元数据文件（
 - `skills doctor`：检查已安装技能是否可执行
 - `skills test <name>`：对某个技能做非执行检查（脚本存在性/OS 兼容性/大小限制等）
 - `reload` / `/reload`：重新加载 system prompt（读取最新 skills/memory，无需重启）
+- `update` / `/update`：平滑更新（执行 git pull + go mod tidy + go build，保留 workspace 数据）
 - `clear` / `/clear`：清屏（打印多行空行）
 - `reset` / `/reset`：清空会话 history（不删除文件）
+
+更新命令默认会二次确认；非交互模式可用：
+
+```bash
+update --yes
+```
 
 ## 非交互模式（CI/脚本）
 
