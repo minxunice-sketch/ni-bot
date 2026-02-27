@@ -39,7 +39,7 @@ func InstallSkillsFromGitURL(workspace, url string) ([]string, error) {
 		return nil, fmt.Errorf("git clone failed: %w", err)
 	}
 
-	return InstallSkillsFromPath(workspace, tmp)
+	return InstallSkillsFromPathWithOrigin(workspace, tmp, url, "upstream")
 }
 
 func isSafeGitURL(url string) bool {
@@ -56,4 +56,3 @@ func isSafeGitURL(url string) bool {
 	}
 	return false
 }
-

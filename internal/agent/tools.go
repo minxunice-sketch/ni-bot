@@ -190,6 +190,15 @@ func executeOne(ctx ExecContext, call ExecCall) ToolResult {
 			return ToolResult{Tool: call.Tool, OK: false, Error: err.Error(), Output: out}
 		}
 		return ToolResult{Tool: call.Tool, OK: true, Output: out}
+	case "skill_exec":
+		if !ctx.Policy.AllowsTool(call.Tool) {
+			return ToolResult{Tool: call.Tool, OK: false, Error: "disabled by policy"}
+		}
+		out, err := toolSkillExec(ctx, call.ArgsRaw)
+		if err != nil {
+			return ToolResult{Tool: call.Tool, OK: false, Error: err.Error(), Output: out}
+		}
+		return ToolResult{Tool: call.Tool, OK: true, Output: out}
 	default:
 		return ToolResult{Tool: call.Tool, OK: false, Error: "unknown tool"}
 	}
@@ -488,12 +497,8 @@ func toolSkillExec(ctx ExecContext, argsRaw string) (string, error) {
 		return "", fmt.Errorf("skill.exec denied by policy")
 	}
 
-	rel := filepath.ToSlash(filepath.Join("skills", a.Skill, "scripts", a.Script))
-	abs, err := resolveWorkspacePath(ctx.Workspace, rel)
+	abs, err := resolveSkillScriptPath(ctx.Workspace, a.Skill, a.Script)
 	if err != nil {
-		return "", err
-	}
-	if _, err := os.Stat(abs); err != nil {
 		return "", err
 	}
 
@@ -560,3 +565,20 @@ func toolSkillExec(ctx ExecContext, argsRaw string) (string, error) {
 	return formatExecOutput(strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String())), nil
 }
 
+func resolveSkillScriptPath(workspace, skill, script string) (string, error) {
+	candidates := []string{
+		filepath.ToSlash(filepath.Join("skills", "_overrides", skill, "scripts", script)),
+		filepath.ToSlash(filepath.Join("skills", skill, "scripts", script)),
+		filepath.ToSlash(filepath.Join("skills", "_upstream", skill, "scripts", script)),
+	}
+	for _, rel := range candidates {
+		abs, err := resolveWorkspacePath(workspace, rel)
+		if err != nil {
+			continue
+		}
+		if _, err := os.Stat(abs); err == nil {
+			return abs, nil
+		}
+	}
+	return "", fmt.Errorf("skill script not found: %s/%s", skill, script)
+}

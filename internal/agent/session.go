@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -29,17 +30,25 @@ type SessionManager struct {
 	current       *SessionState
 	persistDir    string
 	healthMonitor *HealthMonitor
+	store         *SQLiteStore
 	mu            sync.RWMutex
 }
 
 func NewSessionManager(workspace string, healthMonitor *HealthMonitor) *SessionManager {
 	persistDir := filepath.Join(workspace, "data", "sessions")
 	os.MkdirAll(persistDir, 0755)
-	
+
+	store, err := OpenSQLiteStore(workspace)
+	if err != nil {
+		log.Printf("Failed to open SQLite store: %v", err)
+		store = nil
+	}
+
 	return &SessionManager{
 		workspace:     workspace,
 		persistDir:    persistDir,
 		healthMonitor: healthMonitor,
+		store:         store,
 	}
 }
 
@@ -118,6 +127,10 @@ func (sm *SessionManager) PersistSession(state *SessionState) error {
 	// Atomic rename
 	if err := os.Rename(tempPath, filePath); err != nil {
 		return fmt.Errorf("failed to rename session file: %v", err)
+	}
+
+	if sm.store != nil {
+		_ = sm.store.UpsertSession(state)
 	}
 	
 	return nil
@@ -221,6 +234,10 @@ func (sm *SessionManager) SessionEnded() {
 	if sm.healthMonitor != nil {
 		sm.healthMonitor.SessionEnded()
 	}
+	if sm.store != nil {
+		sm.store.Close()
+		sm.store = nil
+	}
 }
 
 func (sm *SessionManager) SetCurrentTask(task string) {
@@ -237,4 +254,26 @@ func (sm *SessionManager) AddToMemory(memoryItem string) {
 			s.Memory = s.Memory[1:]
 		}
 	})
+}
+
+func (sm *SessionManager) RecordMessage(role, content string) {
+	if sm == nil || sm.store == nil {
+		return
+	}
+	s := sm.GetCurrentSession()
+	if s == nil {
+		return
+	}
+	_ = sm.store.InsertMessage(s.SessionID, role, content)
+}
+
+func (sm *SessionManager) RecordToolResults(calls []ExecCall, results []ToolResult) {
+	if sm == nil || sm.store == nil {
+		return
+	}
+	s := sm.GetCurrentSession()
+	if s == nil {
+		return
+	}
+	_ = sm.store.InsertToolAudit(s.SessionID, calls, results)
 }

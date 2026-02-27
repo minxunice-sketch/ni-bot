@@ -1,0 +1,7 @@
+- [x] 原生 Tool Calling 可通过开关启用，且在不支持时回退到 `[EXEC:...]`
+- [x] 两种工具调用通道均遵守同一套 policy 与审批机制
+- [x] SQLite 存储默认关闭，启用后会话/消息/审计写入 `workspace/data/nibot.db`
+- [x] skills 支持继承/覆盖：本地可覆写第三方同名技能脚本
+- [x] README/QUICKSTART 说明已覆盖新功能启用方式与常见误区
+- [x] `比较ni bot与go bot两个哪个更好.md` 已从仓库删除
+- [x] `go test ./...` 全量通过，基础 CLI 启动路径可用

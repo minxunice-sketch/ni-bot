@@ -35,13 +35,14 @@ func ConstructSystemPrompt(workspace string) (string, error) {
 		sb.WriteString("\n\n")
 	}
 
-	skillsDir := filepath.Join(workspace, "skills")
-	skillDocs, err := loadSkillDocs(skillsDir)
-	if err == nil && len(skillDocs) > 0 {
+	skills, err := DiscoverSkills(workspace)
+	if err == nil && len(skills) > 0 {
 		sb.WriteString("=== SKILLS ===\n")
-		for _, doc := range skillDocs {
-			sb.WriteString(doc)
-			sb.WriteString("\n---\n")
+		for _, s := range skills {
+			if strings.TrimSpace(s.Docs) == "" {
+				continue
+			}
+			sb.WriteString(fmt.Sprintf("Skill: %s\n%s\n---\n", s.Name, s.Docs))
 		}
 	}
 

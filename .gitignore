@@ -32,6 +32,7 @@ workspace/logs/
 workspace/data/sessions/
 workspace/data/*.toml
 workspace/data/*.json
+workspace/data/*.db
 workspace/memory/
 workspace/.env.*
 

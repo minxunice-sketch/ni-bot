@@ -43,13 +43,42 @@ type Message struct {
 }
 
 type openAIRequest struct {
-	Model    string    `json:"model"`
-	Messages []Message `json:"messages"`
+	Model      string      `json:"model"`
+	Messages   []Message    `json:"messages"`
+	Tools      []openAITool `json:"tools,omitempty"`
+	ToolChoice any         `json:"tool_choice,omitempty"`
+}
+
+type openAITool struct {
+	Type     string           `json:"type"`
+	Function openAIFunctionDef `json:"function"`
+}
+
+type openAIFunctionDef struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Parameters  map[string]any `json:"parameters,omitempty"`
+}
+
+type openAIMessage struct {
+	Role      string           `json:"role"`
+	Content   string           `json:"content,omitempty"`
+	ToolCalls []openAIToolCall `json:"tool_calls,omitempty"`
+}
+
+type openAIToolCall struct {
+	Type     string           `json:"type"`
+	Function openAIFunctionCall `json:"function"`
+}
+
+type openAIFunctionCall struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
 }
 
 type openAIResponse struct {
 	Choices []struct {
-		Message Message `json:"message"`
+		Message openAIMessage `json:"message"`
 	} `json:"choices"`
 	Error struct {
 		Message string `json:"message"`
@@ -302,6 +331,10 @@ func (c *LLMClient) callOpenAICompatible(messages []Message) (string, error) {
 		Model:    c.Config.ModelName,
 		Messages: messages,
 	}
+	if nativeToolsEnabled() {
+		reqBody.Tools = c.openAIToolsForPolicy()
+		reqBody.ToolChoice = "auto"
+	}
 	jsonData, _ := json.Marshal(reqBody)
 
 	req, err := http.NewRequest("POST", c.Config.BaseURL+"/chat/completions", bytes.NewBuffer(jsonData))
@@ -330,7 +363,123 @@ func (c *LLMClient) callOpenAICompatible(messages []Message) (string, error) {
 	if len(openAIResp.Choices) == 0 {
 		return "", fmt.Errorf("empty response from API")
 	}
+	if nativeToolsEnabled() && len(openAIResp.Choices[0].Message.ToolCalls) > 0 {
+		return translateToolCallsToExec(openAIResp.Choices[0].Message.ToolCalls), nil
+	}
 	return openAIResp.Choices[0].Message.Content, nil
+}
+
+func nativeToolsEnabled() bool {
+	v := strings.TrimSpace(os.Getenv("NIBOT_ENABLE_NATIVE_TOOLS"))
+	if v == "" {
+		return false
+	}
+	switch strings.ToLower(v) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func translateToolCallsToExec(calls []openAIToolCall) string {
+	var lines []string
+	for _, tc := range calls {
+		name := strings.TrimSpace(tc.Function.Name)
+		if name == "" {
+			continue
+		}
+		args := strings.TrimSpace(tc.Function.Arguments)
+		if args == "" {
+			lines = append(lines, fmt.Sprintf("[EXEC:%s]", name))
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("[EXEC:%s %s]", name, args))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (c *LLMClient) openAIToolsForPolicy() []openAITool {
+	p := c.Config.Policy
+	if !p.Loaded {
+		p = DefaultToolPolicy()
+	}
+
+	tools := []openAITool{
+		{
+			Type: "function",
+			Function: openAIFunctionDef{
+				Name:        "file_read",
+				Description: "Read a file from Ni bot workspace",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"path": map[string]any{"type": "string"},
+					},
+					"required": []string{"path"},
+				},
+			},
+		},
+	}
+
+	if p.AllowsTool("file_write") {
+		tools = append(tools, openAITool{
+			Type: "function",
+			Function: openAIFunctionDef{
+				Name:        "file_write",
+				Description: "Write a file under Ni bot workspace (append or overwrite subject to policy)",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"path":    map[string]any{"type": "string"},
+						"content": map[string]any{"type": "string"},
+						"mode":    map[string]any{"type": "string", "enum": []string{"append", "overwrite"}},
+					},
+					"required": []string{"path", "content"},
+				},
+			},
+		})
+	}
+
+	if p.AllowsTool("shell_exec") {
+		tools = append(tools, openAITool{
+			Type: "function",
+			Function: openAIFunctionDef{
+				Name:        "shell_exec",
+				Description: "Execute a shell command with approval and sandbox/policy restrictions",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"command":        map[string]any{"type": "string"},
+						"timeoutSeconds": map[string]any{"type": "integer"},
+					},
+					"required": []string{"command"},
+				},
+			},
+		})
+	}
+
+	if p.AllowsTool("skill_exec") {
+		tools = append(tools, openAITool{
+			Type: "function",
+			Function: openAIFunctionDef{
+				Name:        "skill_exec",
+				Description: "Execute a skill script with approval and sandbox/policy restrictions",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"skill":          map[string]any{"type": "string"},
+						"script":         map[string]any{"type": "string"},
+						"args":           map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+						"timeoutSeconds": map[string]any{"type": "integer"},
+					},
+					"required": []string{"skill", "script"},
+				},
+			},
+		})
+	}
+
+	return tools
 }
 
 func (c *LLMClient) callOllama(messages []Message) (string, error) {
@@ -601,6 +750,9 @@ func (c *LLMClient) Loop(inputReader io.Reader, outputWriter io.Writer, logger *
 		}
 
 		writeLog(logger, fmt.Sprintf("\n### User:\n%s\n", redactSecrets(input)))
+		if c.SessionManager != nil {
+			c.SessionManager.RecordMessage("user", redactSecrets(input))
+		}
 
 		// Update session with user input
 		if c.SessionManager != nil {
@@ -619,6 +771,9 @@ func (c *LLMClient) Loop(inputReader io.Reader, outputWriter io.Writer, logger *
 
 			fmt.Fprintf(outputWriter, "\n%s\n", redactSecrets(resp))
 			writeLog(logger, fmt.Sprintf("\n### Ni bot:\n%s\n", redactSecrets(resp)))
+			if c.SessionManager != nil {
+				c.SessionManager.RecordMessage("assistant", redactSecrets(resp))
+			}
 
 			calls := ExtractExecCalls(resp)
 			if len(calls) == 0 {
@@ -640,6 +795,10 @@ func (c *LLMClient) Loop(inputReader io.Reader, outputWriter io.Writer, logger *
 			writeAuditToolResults(logger, c.Config.LogLevel, calls, results)
 			fmt.Fprintln(outputWriter, "\n[Tool Results]")
 			fmt.Fprintln(outputWriter, toolSummaryForDisplay)
+			if c.SessionManager != nil {
+				c.SessionManager.RecordMessage("tool_results", toolSummaryForModel)
+				c.SessionManager.RecordToolResults(calls, results)
+			}
 
 			if c.SessionManager != nil && len(calls) > 0 {
 				for i := range calls {

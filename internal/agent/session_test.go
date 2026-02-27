@@ -1,10 +1,12 @@
 package agent
 
 import (
+	"database/sql"
 	"encoding/json"
 	"math"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -107,6 +109,48 @@ func TestSessionManager_NoCurrentSession(t *testing.T) {
 	// Test persisting nil session
 	if err := manager.PersistSession(nil); err == nil {
 		t.Error("Expected error when persisting nil session")
+	}
+}
+
+func TestSessionManager_SQLiteStoreWrites(t *testing.T) {
+	t.Setenv("NIBOT_STORAGE", "sqlite")
+
+	tempDir, err := os.MkdirTemp("", "session_test_sqlite")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	manager := NewSessionManager(tempDir, nil)
+	s := manager.StartNewSession()
+	manager.RecordMessage("user", "hello")
+	if err := manager.PersistSession(s); err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+	manager.SessionEnded()
+
+	dbPath := filepath.Join(tempDir, "data", "nibot.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("expected db file to exist: %v", err)
+	}
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	var n int
+	if err := db.QueryRow("select count(*) from sessions").Scan(&n); err != nil {
+		t.Fatalf("count sessions: %v", err)
+	}
+	if n < 1 {
+		t.Fatalf("expected at least 1 session, got %d", n)
+	}
+	if err := db.QueryRow("select count(*) from messages").Scan(&n); err != nil {
+		t.Fatalf("count messages: %v", err)
+	}
+	if n < 1 {
+		t.Fatalf("expected at least 1 message, got %d", n)
 	}
 }
 

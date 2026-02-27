@@ -2,6 +2,10 @@ package agent
 
 import (
 	"bytes"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -127,6 +131,66 @@ func TestLoop_SkillsSearch(t *testing.T) {
 	s := out.String()
 	if !strings.Contains(s, "Skills:") || !strings.Contains(s, "- x — desc") {
 		t.Fatalf("expected search hit, got: %s", s)
+	}
+}
+
+func TestOpenAICompatible_NativeToolCallsTranslatedToExec(t *testing.T) {
+	t.Setenv("NIBOT_ENABLE_NATIVE_TOOLS", "1")
+
+	var gotTools []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var req map[string]any
+		if err := json.Unmarshal(b, &req); err != nil {
+			t.Fatal(err)
+		}
+		if tools, ok := req["tools"].([]any); ok {
+			for _, it := range tools {
+				m, _ := it.(map[string]any)
+				fn, _ := m["function"].(map[string]any)
+				if name, _ := fn["name"].(string); name != "" {
+					gotTools = append(gotTools, name)
+				}
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"type":"function","function":{"name":"file_read","arguments":"{\"path\":\"memory/facts.md\"}"}}]}}]}`))
+	}))
+	defer srv.Close()
+
+	cfg := Config{
+		Provider:  "openai",
+		BaseURL:   srv.URL,
+		APIKey:    "x",
+		ModelName: "gpt-4-turbo",
+		Policy: ToolPolicy{
+			Loaded:           true,
+			AllowFSWrite:      false,
+			AllowRuntimeExec:  false,
+			AllowSkillExec:    false,
+			RequireFSWrite:    true,
+			RequireRuntimeExec: true,
+			RequireSkillExec:  true,
+		},
+	}
+	c := NewLLMClient(cfg, t.TempDir(), "sys", nil)
+
+	out, err := c.callOpenAICompatible([]Message{{Role: "user", Content: "read"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "[EXEC:file_read") {
+		t.Fatalf("expected translated exec call, got: %q", out)
+	}
+	if strings.Contains(strings.Join(gotTools, ","), "shell_exec") || strings.Contains(strings.Join(gotTools, ","), "skill_exec") || strings.Contains(strings.Join(gotTools, ","), "file_write") {
+		t.Fatalf("expected tools gated by policy, got: %#v", gotTools)
+	}
+	if !strings.Contains(strings.Join(gotTools, ","), "file_read") {
+		t.Fatalf("expected file_read to be present, got: %#v", gotTools)
 	}
 }
 

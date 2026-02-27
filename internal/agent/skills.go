@@ -24,34 +24,38 @@ type SkillScript struct {
 }
 
 func DiscoverSkillScripts(workspace string) ([]SkillScript, error) {
-	root := filepath.Join(workspace, "skills")
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
+	overridesRoot, localRoot, upstreamRoot := skillRoots(workspace)
+	skillNames := map[string]struct{}{}
+	for _, r := range []string{overridesRoot, localRoot, upstreamRoot} {
+		names, _ := listSkillDirs(r)
+		for _, n := range names {
+			skillNames[n] = struct{}{}
 		}
-		return nil, err
+	}
+	if len(skillNames) == 0 {
+		return nil, nil
 	}
 
 	var scripts []SkillScript
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		skillName := e.Name()
-		scriptsDir := filepath.Join(root, skillName, "scripts")
-		scriptsEntries, err := os.ReadDir(scriptsDir)
-		if err != nil {
-			continue
-		}
-		for _, se := range scriptsEntries {
-			if se.IsDir() {
+	for name := range skillNames {
+		scriptsSet := map[string]struct{}{}
+		for _, r := range []string{upstreamRoot, localRoot, overridesRoot} {
+			dir := filepath.Join(r, name, "scripts")
+			scs, err := discoverScriptsInDir(dir)
+			if err != nil {
 				continue
 			}
-			name := se.Name()
-			if isExecutableScript(name) {
-				scripts = append(scripts, SkillScript{Skill: skillName, Script: name})
+			for _, sc := range scs {
+				scriptsSet[sc] = struct{}{}
 			}
+		}
+		var merged []string
+		for sc := range scriptsSet {
+			merged = append(merged, sc)
+		}
+		sort.Strings(merged)
+		for _, sc := range merged {
+			scripts = append(scripts, SkillScript{Skill: name, Script: sc})
 		}
 	}
 
@@ -65,7 +69,85 @@ func DiscoverSkillScripts(workspace string) ([]SkillScript, error) {
 }
 
 func DiscoverSkills(workspace string) ([]Skill, error) {
-	root := filepath.Join(workspace, "skills")
+	overridesRoot, localRoot, upstreamRoot := skillRoots(workspace)
+	skillNames := map[string]struct{}{}
+	for _, r := range []string{overridesRoot, localRoot, upstreamRoot} {
+		names, _ := listSkillDirs(r)
+		for _, n := range names {
+			skillNames[n] = struct{}{}
+		}
+	}
+	if len(skillNames) == 0 {
+		return nil, nil
+	}
+
+	var skills []Skill
+	for name := range skillNames {
+		overrideDir := filepath.Join(overridesRoot, name)
+		localDir := filepath.Join(localRoot, name)
+		upstreamDir := filepath.Join(upstreamRoot, name)
+
+		layer := ""
+		primaryDir := ""
+		if dirExists(overrideDir) {
+			layer = "override"
+			primaryDir = overrideDir
+		} else if dirExists(localDir) {
+			layer = "local"
+			primaryDir = localDir
+		} else if dirExists(upstreamDir) {
+			layer = "upstream"
+			primaryDir = upstreamDir
+		} else {
+			continue
+		}
+
+		info := loadSkillInfo(primaryDir, name)
+
+		origin := firstNonEmpty(readSkillOrigin(overrideDir), readSkillOrigin(localDir), readSkillOrigin(upstreamDir))
+		parts := []string{}
+		if strings.TrimSpace(info.Source) != "" {
+			parts = append(parts, strings.TrimSpace(info.Source))
+		}
+		if layer != "" {
+			parts = append(parts, "layer="+layer)
+		}
+		if origin != "" {
+			parts = append(parts, "origin="+origin)
+		}
+		info.Source = strings.Join(parts, "; ")
+
+		scripts := map[string]struct{}{}
+		for _, r := range []string{upstreamDir, localDir, overrideDir} {
+			scs, err := discoverScriptsInDir(filepath.Join(r, "scripts"))
+			if err != nil {
+				continue
+			}
+			for _, sc := range scs {
+				scripts[sc] = struct{}{}
+			}
+		}
+		var merged []string
+		for sc := range scripts {
+			merged = append(merged, sc)
+		}
+		sort.Strings(merged)
+		info.Scripts = merged
+		skills = append(skills, info)
+	}
+
+	sort.Slice(skills, func(i, j int) bool { return skills[i].Name < skills[j].Name })
+	return skills, nil
+}
+
+func skillRoots(workspace string) (overridesRoot, localRoot, upstreamRoot string) {
+	localRoot = filepath.Join(workspace, "skills")
+	overridesRoot = filepath.Join(localRoot, "_overrides")
+	upstreamRoot = filepath.Join(localRoot, "_upstream")
+	return overridesRoot, localRoot, upstreamRoot
+}
+
+func listSkillDirs(root string) ([]string, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -73,23 +155,45 @@ func DiscoverSkills(workspace string) ([]Skill, error) {
 		}
 		return nil, err
 	}
-
-	var skills []Skill
+	var names []string
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
 		}
-		name := e.Name()
-		dir := filepath.Join(root, name)
-		info := loadSkillInfo(dir, name)
-
-		scripts, _ := discoverScriptsInDir(filepath.Join(dir, "scripts"))
-		info.Scripts = scripts
-		skills = append(skills, info)
+		n := e.Name()
+		if strings.HasPrefix(n, ".") || strings.HasPrefix(n, "_") {
+			continue
+		}
+		names = append(names, n)
 	}
+	sort.Strings(names)
+	return names, nil
+}
 
-	sort.Slice(skills, func(i, j int) bool { return skills[i].Name < skills[j].Name })
-	return skills, nil
+type skillOriginMeta struct {
+	Origin string `json:"origin"`
+}
+
+func readSkillOrigin(skillDir string) string {
+	b, err := os.ReadFile(filepath.Join(skillDir, ".nibot_source.json"))
+	if err != nil {
+		return ""
+	}
+	var m skillOriginMeta
+	if json.Unmarshal(b, &m) != nil {
+		return ""
+	}
+	return strings.TrimSpace(m.Origin)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func discoverScriptsInDir(dir string) ([]string, error) {
@@ -270,4 +374,3 @@ func isExecutableScript(name string) bool {
 	l := strings.ToLower(name)
 	return strings.HasSuffix(l, ".sh") || strings.HasSuffix(l, ".ps1") || strings.HasSuffix(l, ".bat") || strings.HasSuffix(l, ".cmd") || strings.HasSuffix(l, ".exe")
 }
-

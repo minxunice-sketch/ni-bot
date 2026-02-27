@@ -123,3 +123,49 @@ func TestToolSkillExec_RunsLocalScript(t *testing.T) {
 	}
 }
 
+func TestToolSkillExec_PrefersOverrideOverUpstream(t *testing.T) {
+	t.Setenv("NIBOT_ENABLE_SKILLS", "1")
+	ws := t.TempDir()
+
+	up := filepath.Join(ws, "skills", "_upstream", "echo", "scripts")
+	ov := filepath.Join(ws, "skills", "_overrides", "echo", "scripts")
+	if err := os.MkdirAll(up, 0o755); err != nil {
+		t.Fatalf("mkdir upstream: %v", err)
+	}
+	if err := os.MkdirAll(ov, 0o755); err != nil {
+		t.Fatalf("mkdir overrides: %v", err)
+	}
+
+	if runtime.GOOS == "windows" {
+		if err := os.WriteFile(filepath.Join(up, "echo.cmd"), []byte("@echo upstream\r\n"), 0o644); err != nil {
+			t.Fatalf("write upstream: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(ov, "echo.cmd"), []byte("@echo override\r\n"), 0o644); err != nil {
+			t.Fatalf("write override: %v", err)
+		}
+		ctx := ExecContext{Workspace: ws}
+		out, err := toolSkillExec(ctx, `{"skill":"echo","script":"echo.cmd","args":[],"timeoutSeconds":10}`)
+		if err != nil {
+			t.Fatalf("skill.exec failed: %v output=%q", err, out)
+		}
+		if !strings.Contains(out, "override") {
+			t.Fatalf("expected override output, got %q", out)
+		}
+		return
+	}
+
+	if err := os.WriteFile(filepath.Join(up, "echo.sh"), []byte("echo upstream\n"), 0o755); err != nil {
+		t.Fatalf("write upstream: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(ov, "echo.sh"), []byte("echo override\n"), 0o755); err != nil {
+		t.Fatalf("write override: %v", err)
+	}
+	ctx := ExecContext{Workspace: ws}
+	out, err := toolSkillExec(ctx, `{"skill":"echo","script":"echo.sh","args":[],"timeoutSeconds":10}`)
+	if err != nil {
+		t.Fatalf("skill.exec failed: %v output=%q", err, out)
+	}
+	if !strings.Contains(out, "override") {
+		t.Fatalf("expected override output, got %q", out)
+	}
+}

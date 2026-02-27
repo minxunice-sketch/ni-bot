@@ -89,7 +89,7 @@ func (p ToolPolicy) AllowsTool(tool string) bool {
 		return p.AllowFSWrite
 	case "runtime.exec", "shell_exec":
 		return p.AllowRuntimeExec
-	case "skill.exec":
+	case "skill.exec", "skill_exec":
 		return p.AllowSkillExec
 	default:
 		return true
@@ -102,7 +102,7 @@ func (p ToolPolicy) RequiresApproval(tool string) bool {
 		return p.RequireFSWrite
 	case "runtime.exec", "shell_exec":
 		return p.RequireRuntimeExec
-	case "skill.exec":
+	case "skill.exec", "skill_exec":
 		return p.RequireSkillExec
 	default:
 		return false

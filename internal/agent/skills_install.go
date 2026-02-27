@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"strconv"
 	"sort"
 	"strings"
+	"time"
 )
 
 func skillsMaxFileBytes() int64 {
@@ -34,6 +36,10 @@ func shouldIgnoreSkillDir(name string) bool {
 }
 
 func InstallSkillsFromPath(workspace string, src string) ([]string, error) {
+	return InstallSkillsFromPathWithOrigin(workspace, src, "", "local")
+}
+
+func InstallSkillsFromPathWithOrigin(workspace string, src string, origin string, defaultLayer string) ([]string, error) {
 	src = strings.TrimSpace(src)
 	if src == "" {
 		return nil, fmt.Errorf("empty source path")
@@ -43,22 +49,40 @@ func InstallSkillsFromPath(workspace string, src string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	if origin == "" {
+		origin = srcAbs
+	}
+
+	layer := strings.ToLower(strings.TrimSpace(os.Getenv("NIBOT_SKILLS_INSTALL_LAYER")))
+	if layer == "" {
+		layer = strings.ToLower(strings.TrimSpace(defaultLayer))
+	}
+	dstRoot := filepath.Join(workspace, "skills")
+	if layer == "upstream" {
+		dstRoot = filepath.Join(dstRoot, "_upstream")
+	}
+	_ = os.MkdirAll(dstRoot, 0o755)
+
 	st, err := os.Stat(srcAbs)
 	if err != nil {
 		return nil, err
 	}
 	if !st.IsDir() {
 		if strings.EqualFold(filepath.Ext(srcAbs), ".zip") {
-			return installSkillsFromZip(workspace, srcAbs)
+			return installSkillsFromZip(workspace, srcAbs, origin, defaultLayer)
 		}
 		return nil, fmt.Errorf("source is not a directory: %s", srcAbs)
 	}
 
-	dstRoot := filepath.Join(workspace, "skills")
-	_ = os.MkdirAll(dstRoot, 0o755)
-
 	if dirExists(filepath.Join(srcAbs, "skills")) {
-		return installSkillsFromSkillsRoot(dstRoot, filepath.Join(srcAbs, "skills"))
+		installed, err := installSkillsFromSkillsRoot(dstRoot, filepath.Join(srcAbs, "skills"))
+		if err != nil {
+			return nil, err
+		}
+		for _, name := range installed {
+			_ = writeSkillSourceMeta(filepath.Join(dstRoot, name), origin, layer)
+		}
+		return installed, nil
 	}
 
 	if dirExists(filepath.Join(srcAbs, "scripts")) {
@@ -66,6 +90,7 @@ func InstallSkillsFromPath(workspace string, src string) ([]string, error) {
 		if err := installOneSkillDir(dstRoot, srcAbs, name); err != nil {
 			return nil, err
 		}
+		_ = writeSkillSourceMeta(filepath.Join(dstRoot, name), origin, layer)
 		return []string{name}, nil
 	}
 
@@ -86,6 +111,7 @@ func InstallSkillsFromPath(workspace string, src string) ([]string, error) {
 		if err := installOneSkillDir(dstRoot, tmp, name); err != nil {
 			return nil, err
 		}
+		_ = writeSkillSourceMeta(filepath.Join(dstRoot, name), origin, layer)
 		return []string{name}, nil
 	}
 
@@ -103,6 +129,7 @@ func InstallSkillsFromPath(workspace string, src string) ([]string, error) {
 			if err := installOneSkillDir(dstRoot, cDir, c.Name()); err != nil {
 				return nil, err
 			}
+			_ = writeSkillSourceMeta(filepath.Join(dstRoot, c.Name()), origin, layer)
 			installed = append(installed, c.Name())
 		}
 	}
@@ -112,6 +139,30 @@ func InstallSkillsFromPath(workspace string, src string) ([]string, error) {
 	}
 
 	return nil, fmt.Errorf("no skills found under: %s", srcAbs)
+}
+
+type skillSourceMeta struct {
+	Origin      string `json:"origin"`
+	Layer       string `json:"layer"`
+	InstalledAt string `json:"installed_at"`
+}
+
+func writeSkillSourceMeta(skillDir string, origin string, layer string) error {
+	origin = strings.TrimSpace(origin)
+	layer = strings.ToLower(strings.TrimSpace(layer))
+	if origin == "" {
+		return nil
+	}
+	m := skillSourceMeta{
+		Origin:      origin,
+		Layer:       layer,
+		InstalledAt: time.Now().Format(time.RFC3339Nano),
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(skillDir, ".nibot_source.json"), b, 0o644)
 }
 
 func installSkillsFromSkillsRoot(dstRoot, skillsRoot string) ([]string, error) {
@@ -231,4 +282,3 @@ func dirExists(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && st.IsDir()
 }
-

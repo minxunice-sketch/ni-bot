@@ -84,6 +84,12 @@ $env:NIBOT_ENABLE_SKILLS="1"
 # 允许Git操作
 $env:NIBOT_ENABLE_GIT="1"
 
+# 可选：启用原生 Tool Calling（支持的 OpenAI 兼容模型会返回结构化 tool_calls）
+$env:NIBOT_ENABLE_NATIVE_TOOLS="1"
+
+# 可选：启用 SQLite 存储（写入 workspace/data/nibot.db）
+$env:NIBOT_STORAGE="sqlite"
+
 # 启用技能进化功能（实验性）
 $env:NIBOT_EVOLUTION_ENABLED="true"
 $env:NIBOT_EVOLUTION_STRATEGY="balanced"

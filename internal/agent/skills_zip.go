@@ -36,7 +36,7 @@ func skillsMaxZipBytes() int64 {
 	return defaultMax
 }
 
-func installSkillsFromZip(workspace, zipPath string) ([]string, error) {
+func installSkillsFromZip(workspace, zipPath string, origin string, defaultLayer string) ([]string, error) {
 	st, err := os.Stat(zipPath)
 	if err != nil {
 		return nil, err
@@ -132,7 +132,7 @@ func installSkillsFromZip(workspace, zipPath string) ([]string, error) {
 		}
 	}
 
-	return InstallSkillsFromPath(workspace, tmp)
+	return InstallSkillsFromPathWithOrigin(workspace, tmp, origin, defaultLayer)
 }
 
 func safeBaseName(path string) string {

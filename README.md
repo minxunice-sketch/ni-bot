@@ -129,7 +129,11 @@ go run ./cmd/nibot
 - `workspace/memory/`：长期记忆与反思
 - `workspace/skills/{name}/SKILL.md`：技能描述（注入提示词）
 - `workspace/skills/{name}/scripts/`：技能脚本（可被执行为工具）
+- `workspace/skills/_upstream/{name}/`：第三方技能（可选层，用于保留上游原样）
+- `workspace/skills/_overrides/{name}/`：本地覆写层（可选层，优先于本地与上游）
 - `workspace/logs/`：会话审计日志（自动生成）
+
+skills 解析优先级：`_overrides` > `skills/{name}` > `_upstream`。安装技能时可设置 `NIBOT_SKILLS_INSTALL_LAYER=upstream` 将第三方技能写入上游层，并自动写入 `.nibot_source.json` 记录来源。
 
 ## 工具
 
@@ -147,6 +151,8 @@ go run ./cmd/nibot
   - `[EXEC:health.status {}]` - 查看健康状态
   - `[EXEC:health.metrics {}]` - 查看性能指标
   - `[EXEC:health.stats {}]` - 查看统计信息
+
+可选：启用 `NIBOT_ENABLE_NATIVE_TOOLS=1` 后，Ni bot 会在 OpenAI 兼容接口请求中以原生 Tool Calling 方式提供工具定义；当模型返回结构化 tool_calls 时，Ni bot 会自动转译到现有执行链路，并继续走同一套 policy + y/n 审批。
 
 ### 安全开关
 
@@ -174,6 +180,8 @@ Ni bot 支持完整的会话持久化功能：
 - 自动保存和恢复对话状态
 - 会话数据原子写入防止损坏
 - 支持会话级别的工具调用审批跟踪
+
+可选：设置 `NIBOT_STORAGE=sqlite` 后，会额外写入 `workspace/data/nibot.db`（会话元数据、消息与工具审计），同时仍保留 `workspace/logs/*.md` 审计日志。
 
 ### 健康监控
 
