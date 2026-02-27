@@ -4,19 +4,85 @@ Ni bot 是一个极简、文件驱动、可自进化的 AI Agent 原型：身份
 
 ## 运行
 
-前置：Windows 已安装 Go，并确保在当前终端 `go version` 可用。
+### 前置条件
 
-在项目根目录运行：
+- 已安装 Go（建议 1.21+），并确保在当前终端 `go version` 可用
+- 可选：已安装 Git（用于从 GitHub 克隆仓库）
+
+### 安装 Go（Windows / macOS / Linux）
+
+Windows：
+
+- 方式 1：官方下载并安装（推荐）：访问 Go 官网下载页面安装（go.dev/dl）
+- 方式 2：如果已安装但终端找不到 `go`，可将 Go 加入 PATH（示例）：
+
+```powershell
+$env:Path += ";C:\Program Files\Go\bin"
+go version
+```
+
+macOS：
+
+- Apple Silicon（M1/M2/M3）与 Intel 均可使用 Homebrew：
+
+```bash
+brew install go
+go version
+```
+
+- 如果不使用 Homebrew：从 go.dev/dl 下载 macOS 安装包（pkg）安装后，重新打开终端再执行 `go version`
+
+Linux：
+
+- Debian/Ubuntu：
+
+```bash
+sudo apt update
+sudo apt install -y golang
+go version
+```
+
+- Fedora：
+
+```bash
+sudo dnf install -y golang
+go version
+```
+
+- Arch：
+
+```bash
+sudo pacman -S --noconfirm go
+go version
+```
+
+如果发行版仓库的 Go 版本偏旧，建议改用 go.dev/dl 的官方包安装。
+
+### 安装 Git（可选）
+
+- Windows：安装 Git for Windows（安装后在 PowerShell 里执行 `git --version`）
+- macOS：执行 `xcode-select --install` 或使用 Homebrew：`brew install git`
+- Linux：`sudo apt install -y git` / `sudo dnf install -y git` / `sudo pacman -S git`
+
+### 下载代码（GitHub）
+
+```bash
+git clone https://github.com/minxunice-sketch/ni-bot.git
+cd ni-bot
+```
+
+### 运行（Windows / macOS / Linux）
+
+Windows（PowerShell）：
 
 ```powershell
 go run .\cmd\nibot
 ```
 
-如果当前终端找不到 `go`，可临时补 PATH：
+macOS / Linux（bash/zsh）：
 
-```powershell
-$env:Path += ";C:\Progra~1\Go\bin"
-go version
+```bash
+go run ./cmd/nibot
 ```
 
 ## 配置（环境变量）
@@ -27,12 +93,24 @@ Ni bot 支持 OpenAI 兼容接口（含 NVIDIA NIM），以及 Ollama。
 
 ### NVIDIA NIM（moonshotai/kimi-k2.5）
 
+Windows（PowerShell）：
+
 ```powershell
 $env:LLM_PROVIDER="nvidia"
 $env:LLM_BASE_URL="https://integrate.api.nvidia.com/v1"
 $env:LLM_MODEL_NAME="moonshotai/kimi-k2.5"
 $env:LLM_API_KEY="<YOUR_NVIDIA_API_KEY>"
 go run .\cmd\nibot
+```
+
+macOS / Linux（bash/zsh）：
+
+```bash
+export LLM_PROVIDER="nvidia"
+export LLM_BASE_URL="https://integrate.api.nvidia.com/v1"
+export LLM_MODEL_NAME="moonshotai/kimi-k2.5"
+export LLM_API_KEY="<YOUR_NVIDIA_API_KEY>"
+go run ./cmd/nibot
 ```
 
 ### Mock 模式（无 Key）
@@ -153,7 +231,7 @@ allowed_skill_names = "*"
 allowed_skill_scripts = "*"
 ```
 
-也可以从 [policy.toml.example](file:///d:/%E5%B7%A5%E4%BD%9C/Trae%E9%A1%B9%E7%9B%AE%E6%B5%8B%E8%AF%95%E6%96%87%E4%BB%B6/ai%20agent/workspace/data/policy.toml.example) 复制一份开始改。
+也可以从 `workspace/data/policy.toml.example` 复制一份开始改。
 
 字段说明：
 
@@ -261,5 +339,11 @@ go run .\cmd\nibot -cmd "skills" -cmd "skills doctor"
 
 ```powershell
 go run .\cmd\nibot -workspace "D:\path\to\workspace" -cmd "skills"
+```
+
+macOS / Linux（bash/zsh）：
+
+```bash
+go run ./cmd/nibot -workspace "/path/to/workspace" -cmd "skills"
 ```
 
