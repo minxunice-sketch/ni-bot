@@ -91,6 +91,62 @@ Ni bot 支持 OpenAI 兼容接口（含 NVIDIA NIM），以及 Ollama。
 
 注意：不要在终端/截图/日志里粘贴完整 API Key。Ni bot 会对常见 key/token 做脱敏，但仍建议只展示前后各 4 位用于排障。
 
+### 可选特性配置
+
+#### 原生 Tool Calling
+启用原生 OpenAI 兼容的 Tool Calling 功能：
+```powershell
+$env:NIBOT_ENABLE_NATIVE_TOOLS="1"
+go run .\cmd\nibot
+```
+
+启用后，Ni bot 会在 OpenAI 兼容接口请求中以原生 `tool_calls` 方式提供工具定义。当模型返回结构化 tool_calls 时，Ni bot 会自动转译到现有 `[EXEC:...]` 执行链路，并继续走同一套 policy + y/n 审批流程。
+
+**特性优势：**
+- 更好的 LLM 兼容性：支持标准 OpenAI Tool Calling 格式
+- 无缝回退机制：在不支持原生 Tool Calling 时自动回退到 `[EXEC:...]` 标签
+- 统一审批流程：两种调用方式共享相同的安全策略和审批机制
+
+#### SQLite 持久化存储
+启用 SQLite 数据库存储会话数据：
+```powershell
+$env:NIBOT_STORAGE="sqlite"
+go run .\cmd\nibot
+```
+
+启用后，Ni bot 会额外将会话元数据、消息记录和工具审计日志写入 `workspace/data/nibot.db` SQLite 数据库，同时仍保留原有的 `workspace/logs/*.md` 审计日志文件。
+
+**存储内容：**
+- 会话元数据（ID、创建时间、状态）
+- 完整消息历史（用户输入、AI 回复、工具调用）
+- 工具调用审计记录（执行时间、参数、结果摘要）
+- 审批决策记录（允许/拒绝、决策时间）
+
+**优势：**
+- 生产级数据持久化：防止会话数据丢失
+- 原子写入：避免文件损坏风险
+- 查询优化：支持复杂的数据分析和审计查询
+- 向后兼容：与现有文件日志系统共存
+
+#### Skills 继承与覆盖系统
+Ni bot 支持三层技能继承体系，优先级从高到低：
+1. `workspace/skills/_overrides/` - 本地覆写层（最高优先级）
+2. `workspace/skills/{name}/` - 本地技能层
+3. `workspace/skills/_upstream/` - 上游技能层（最低优先级）
+
+**使用场景：**
+- **本地定制**：在 `_overrides` 层修改第三方技能的脚本或文档
+- **第三方集成**：在 `_upstream` 层保持第三方技能原样，便于更新
+- **协作友好**：清晰的技能来源管理，避免仓库内容不一致
+
+安装技能时可通过环境变量指定层级：
+```powershell
+$env:NIBOT_SKILLS_INSTALL_LAYER="upstream"  # 安装到上游层
+skills install https://github.com/example/skill-repo.git
+```
+
+系统会自动生成 `.nibot_source.json` 文件记录技能安装来源，便于后续更新和维护。
+
 ### NVIDIA NIM（moonshotai/kimi-k2.5）
 
 说明：
