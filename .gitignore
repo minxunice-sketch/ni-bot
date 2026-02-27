@@ -9,7 +9,6 @@ nibot
 
 # Go specific
 vendor/
-go.sum
 
 # Dependency directories
 node_modules/
@@ -73,5 +72,4 @@ env/
 # Misc
 .terraform/
 .ruby-version
-
 
