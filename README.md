@@ -493,10 +493,85 @@ Ni bot 在发现/展示技能时，会自动读取以下任一元数据文件（
 update --yes
 ```
 
+## 🤖 Telegram 适配指南
+
+Ni Bot 支持通过 Telegram Bot API 提供远程访问能力，让你可以在 Telegram 客户端里与 Ni Bot 交互。
+
+### 前置条件
+
+1. **创建 Telegram Bot**
+   - 在 Telegram 中搜索 `@BotFather`
+   - 发送 `/newbot` 创建新机器人
+   - 设置机器人名称和用户名
+   - 获取 API Token（格式：`1234567890:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi`）
+
+2. **配置环境变量**
+```bash
+# Telegram Bot Token
+export TELEGRAM_BOT_TOKEN="你的Telegram Bot Token"
+
+# 可选：设置允许的用户ID（多个用逗号分隔）
+export TELEGRAM_ALLOWED_USER_IDS="123456789,987654321"
+
+# 可选：设置代理（如果需要）
+export TELEGRAM_PROXY_URL="http://proxy.example.com:8080"
+```
+
+### 启动方式
+
+```bash
+# 方式 1：显式启用 Telegram 模式
+nibot -telegram
+
+# 方式 2：仅设置 TELEGRAM_BOT_TOKEN 也会自动启用
+nibot
+```
+
+### 功能特性
+
+- **多会话支持**: 每个 Telegram 用户拥有独立的会话上下文
+- **文件交互**: 支持发送和接收文本、图片、文档
+- **实时响应**: 低延迟的消息处理
+- **安全控制**: 可配置允许访问的用户ID
+- **代理支持**: 支持 HTTP/SOCKS 代理
+
+### 高级配置
+
+```bash
+# 设置消息处理超时（默认30秒）
+export TELEGRAM_TIMEOUT=30
+
+# 设置并发处理数（默认10）
+export TELEGRAM_MAX_CONCURRENT=10
+
+# 设置长轮询超时（默认60秒）
+export TELEGRAM_LONG_POLLING_TIMEOUT=60
+
+# 启用调试模式
+export TELEGRAM_DEBUG=true
+```
+
+### 使用示例
+
+1. **在 Telegram 中搜索你的机器人**
+2. **发送 `/start` 开始对话**
+3. **输入任何问题或指令**
+4. **Ni Bot 会实时回复处理结果**
+
+### 故障排除
+
+#### Q: 收不到消息回复？
+A: 检查 Bot Token 是否正确，确保机器人没有禁用
+
+#### Q: 消息处理超时？
+A: 增加 `TELEGRAM_TIMEOUT` 值或检查网络连接
+
+#### Q: 代理连接失败？
+A: 验证代理地址和端口是否正确可用
+
 ## 非交互模式（CI/脚本）
 
 支持在启动时用参数执行命令并退出，便于脚本化测试：
-
 ```powershell
 go run .\cmd\nibot -cmd "skills" -cmd "skills doctor"
 ```

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"nibot/internal/agent"
 )
@@ -33,10 +35,12 @@ func main() {
 	var workspaceFlag string
 	var cmds stringListFlag
 	var showVersion bool
+	var enableTelegram bool
 
 	flag.StringVar(&workspaceFlag, "workspace", "", "Workspace directory (default: ./workspace)")
 	flag.Var(&cmds, "cmd", "Non-interactive mode: run a command and exit (repeatable)")
 	flag.BoolVar(&showVersion, "version", false, "Print version and exit")
+	flag.BoolVar(&enableTelegram, "telegram", false, "Enable Telegram bot mode")
 	flag.Parse()
 
 	if showVersion {
@@ -166,6 +170,26 @@ func main() {
 	fmt.Println("Ni bot is ready.")
 	
 	client := agent.NewLLMClient(cfg, workspace, systemPrompt, sessionManager)
+
+	// 启动 Telegram 机器人（如果启用）
+	if enableTelegram || os.Getenv("TELEGRAM_BOT_TOKEN") != "" {
+		telegramConfig := agent.NewTelegramConfig()
+		telegramBot, err := agent.NewTelegramBot(telegramConfig, cfg, workspace, systemPrompt, healthMonitor)
+		if err != nil {
+			log.Fatalf("Failed to create Telegram bot: %v", err)
+		}
+		
+		log.Printf("Starting Telegram bot in background...")
+		go func() {
+			ctx := context.Background()
+			if err := telegramBot.Start(ctx); err != nil {
+				log.Printf("Telegram bot stopped with error: %v", err)
+			}
+		}()
+		
+		// 等待 Telegram 机器人启动
+		time.Sleep(2 * time.Second)
+	}
 
 	if len(cmds) > 0 {
 		var b bytes.Buffer
