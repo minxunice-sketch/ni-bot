@@ -497,26 +497,6 @@ update --yes
 
 Ni Bot 支持通过 Telegram Bot API 提供远程访问能力，让你可以在 Telegram 客户端里与 Ni Bot 交互。
 
-### 前置条件
-
-1. **创建 Telegram Bot**
-   - 在 Telegram 中搜索 `@BotFather`
-   - 发送 `/newbot` 创建新机器人
-   - 设置机器人名称和用户名
-   - 获取 API Token（格式：`1234567890:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi`）
-
-2. **配置环境变量**
-```bash
-# Telegram Bot Token
-export TELEGRAM_BOT_TOKEN="你的Telegram Bot Token"
-
-# 可选：设置允许的用户ID（多个用逗号分隔）
-export TELEGRAM_ALLOWED_USER_IDS="123456789,987654321"
-
-# 可选：设置代理（如果需要）
-export TELEGRAM_PROXY_URL="http://proxy.example.com:8080"
-```
-
 ### 启动方式
 
 ```bash
@@ -527,47 +507,94 @@ nibot -telegram
 nibot
 ```
 
-### 功能特性
-
-- **多会话支持**: 每个 Telegram 用户拥有独立的会话上下文
-- **文件交互**: 支持发送和接收文本、图片、文档
-- **实时响应**: 低延迟的消息处理
-- **安全控制**: 可配置允许访问的用户ID
-- **代理支持**: 支持 HTTP/SOCKS 代理
-
-### 高级配置
+### 环境变量配置
 
 ```bash
-# 设置消息处理超时（默认30秒）
-export TELEGRAM_TIMEOUT=30
+# Telegram Bot Token（必需）
+export TELEGRAM_BOT_TOKEN="your_bot_token_here"
 
-# 设置并发处理数（默认10）
-export TELEGRAM_MAX_CONCURRENT=10
-
-# 设置长轮询超时（默认60秒）
-export TELEGRAM_LONG_POLLING_TIMEOUT=60
-
-# 启用调试模式
-export TELEGRAM_DEBUG=true
+# 可选配置
+export TELEGRAM_ALLOWED_USER_IDS="123456789,987654321"  # 允许的用户ID，逗号分隔
+export TELEGRAM_PROXY_URL=""  # 代理URL（如果需要）
+export TELEGRAM_TIMEOUT="30"  # 请求超时（秒）
+export TELEGRAM_MAX_CONCURRENT="10"  # 最大并发数
+export TELEGRAM_DEBUG="false"  # 调试模式
 ```
 
-### 使用示例
+### 使用说明
 
-1. **在 Telegram 中搜索你的机器人**
-2. **发送 `/start` 开始对话**
-3. **输入任何问题或指令**
-4. **Ni Bot 会实时回复处理结果**
+1. 首先在 Telegram 中创建 Bot 并获取 Token
+2. 设置环境变量 `TELEGRAM_BOT_TOKEN`
+3. 启动 Ni Bot 即可开始使用
 
-### 故障排除
+支持的命令：
+- `/help` - 显示帮助信息
+- `/skills` - 查看可用技能
+- `/reset` - 重置当前会话
+- `/reload` - 重新加载配置
+- `/clear` - 清除消息历史
 
-#### Q: 收不到消息回复？
-A: 检查 Bot Token 是否正确，确保机器人没有禁用
+## 🐦 飞书机器人适配指南
 
-#### Q: 消息处理超时？
-A: 增加 `TELEGRAM_TIMEOUT` 值或检查网络连接
+Ni Bot 支持通过飞书开放平台提供企业级机器人服务，让你可以在飞书客户端里与 Ni Bot 交互。
 
-#### Q: 代理连接失败？
-A: 验证代理地址和端口是否正确可用
+### 启动方式
+
+```bash
+# 方式 1：显式启用飞书模式
+nibot -feishu
+
+# 方式 2：设置飞书应用配置也会自动启用
+nibot
+```
+
+### 环境变量配置
+
+```bash
+# 飞书应用配置（必需）
+export FEISHU_APP_ID="your_app_id_here"
+export FEISHU_APP_SECRET="your_app_secret_here"
+
+# 可选配置
+export FEISHU_VERIFICATION_TOKEN=""  # 验证Token
+export FEISHU_ENCRYPT_KEY=""  # 加密Key
+export FEISHU_WEBHOOK_URL=""  # Webhook URL
+export FEISHU_HTTP_PORT="8081"  # HTTP服务器端口
+export FEISHU_TIMEOUT="30"  # 请求超时（秒）
+export FEISHU_MAX_CONCURRENT="10"  # 最大并发数
+export FEISHU_DEBUG="false"  # 调试模式
+```
+
+### 使用说明
+
+1. 在飞书开放平台创建企业自建应用
+2. 获取应用的 App ID 和 App Secret
+3. 配置机器人权限：
+   - 获取与发送单聊、群组消息
+   - 读取用户基本信息
+   - 接收消息与事件
+4. 设置环境变量 `FEISHU_APP_ID` 和 `FEISHU_APP_SECRET`
+5. 配置应用事件订阅：
+   - 请求网址：`https://your-domain.com/feishu/webhook`
+   - 订阅事件：接收消息
+6. 启动 Ni Bot 即可开始使用
+
+支持的命令：
+- `/help` - 显示帮助信息
+- `/skills` - 查看可用技能
+- `/reset` - 重置当前会话
+- `/reload` - 重新加载配置
+- `/clear` - 清除消息历史
+
+### 一键创建飞书机器人（开发中）
+
+我们正在开发一键创建飞书机器人的功能，将自动完成：
+- 应用创建和配置
+- 权限设置
+- 事件订阅配置
+- 环境变量自动生成
+
+敬请期待！
 
 ## 非交互模式（CI/脚本）
 
