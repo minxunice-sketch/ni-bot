@@ -29,7 +29,7 @@ func (s *stringListFlag) Set(value string) error {
 	return nil
 }
 
-var Version = "dev"
+var Version = "v1.1.0"
 
 func main() {
 	var workspaceFlag string
@@ -171,8 +171,28 @@ func main() {
 	
 	client := agent.NewLLMClient(cfg, workspace, systemPrompt, sessionManager)
 
-	// 启动 Telegram 机器人（如果启用）
-	if enableTelegram || os.Getenv("TELEGRAM_BOT_TOKEN") != "" {
+	// 启动飞书机器人（如果启用）
+	if os.Getenv("FEISHU_APP_ID") != "" && os.Getenv("FEISHU_APP_SECRET") != "" {
+		feishuConfig := agent.NewFeishuConfig()
+		feishuBot, err := agent.NewFeishuBot(feishuConfig, cfg, workspace, systemPrompt, healthMonitor)
+		if err != nil {
+			log.Fatalf("Failed to create Feishu bot: %v", err)
+		}
+		
+		log.Printf("Starting Feishu bot in background...")
+		go func() {
+			ctx := context.Background()
+			if err := feishuBot.Start(ctx); err != nil {
+				log.Printf("Feishu bot stopped with error: %v", err)
+			}
+		}()
+		
+		// 等待飞书服务器启动
+		time.Sleep(2 * time.Second)
+	}
+
+	// 启动 Telegram 机器人（只有在明确启用时才启动）
+	if enableTelegram {
 		telegramConfig := agent.NewTelegramConfig()
 		telegramBot, err := agent.NewTelegramBot(telegramConfig, cfg, workspace, systemPrompt, healthMonitor)
 		if err != nil {
