@@ -69,7 +69,49 @@ func main() {
 			workspace = p
 		}
 	}
-	log.Printf("Starting Ni bot in workspace: %s", workspace)
+	// 显示启动状态信息
+	enableExec := os.Getenv("NIBOT_ENABLE_EXEC")
+	enableSkills := os.Getenv("NIBOT_ENABLE_SKILLS")
+	autoApprove := os.Getenv("NIBOT_AUTO_APPROVE")
+	
+	getStatusDisplay := func(enabled bool) string {
+		if enabled {
+			return "✅ ON"
+		}
+		return "❌ OFF"
+	}
+	
+	getEnvDisplay := func(key string) string {
+		value := os.Getenv(key)
+		if value == "" {
+			return "(not set)"
+		}
+		if len(value) > 20 {
+			return value[:20] + "..."
+		}
+		return value
+	}
+	
+	log.Printf("🚀 Starting Ni bot (v%s)", Version)
+	log.Printf("   Workspace: %s", workspace)
+	log.Printf("   EXEC: %s", getStatusDisplay(enableExec == "1"))
+	log.Printf("   SKILLS: %s", getStatusDisplay(enableSkills == "1"))
+	log.Printf("   AUTO_APPROVE: %s", getStatusDisplay(autoApprove == "true"))
+	log.Printf("   GOPROXY: %s", getEnvDisplay("GOPROXY"))
+	log.Printf("   LLM_API_BASE: %s", getEnvDisplay("LLM_API_BASE"))
+
+	// 自动创建工作目录（集成start.sh逻辑到Go代码）
+	if err := os.MkdirAll(filepath.Join(workspace, "logs"), 0o755); err != nil {
+		log.Printf("Warning: Failed to create logs directory: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(workspace, "memory"), 0o755); err != nil {
+		log.Printf("Warning: Failed to create memory directory: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(workspace, "data"), 0o755); err != nil {
+		log.Printf("Warning: Failed to create data directory: %v", err)
+	}
+
+
 
 	if err := agent.EnsureWorkspaceScaffold(workspace); err != nil {
 		log.Fatalf("Failed to initialize workspace: %v", err)

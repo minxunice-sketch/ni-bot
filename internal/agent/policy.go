@@ -146,12 +146,74 @@ func (p ToolPolicy) AllowsRuntimeCommand(command string) bool {
 		return false
 	}
 	first := strings.ToLower(strings.TrimSpace(tokens[0]))
+	
+	// 白名单命令检查 - 优先检查白名单
 	for _, pref := range p.AllowedRuntimePrefixes {
 		pref = strings.ToLower(strings.TrimSpace(pref))
 		if pref != "" && first == pref {
 			return true
 		}
 	}
+	
+	// 黑名单命令检查 - 拒绝危险命令
+	if isDangerousCommand(command) {
+		return false
+	}
+	
+	return false
+}
+
+// 危险命令黑名单检查
+func isDangerousCommand(command string) bool {
+	command = strings.ToLower(strings.TrimSpace(command))
+	
+	// 拒绝危险系统命令
+	dangerousPatterns := []string{
+		"rm -rf /",
+		"rm -rf *",
+		"rm -rf .",
+		"rm -rf",
+		"format ",
+		"del /f /s /q",
+		"rd /s /q",
+		"chmod 777",
+		"chown ",
+		"dd if=/dev/random",
+		":(){ :|:& };:", // fork炸弹
+		"mkfs",
+		"fdisk",
+		"shutdown",
+		"reboot",
+		"halt",
+		"poweroff",
+	}
+	
+	for _, pattern := range dangerousPatterns {
+		if strings.Contains(command, pattern) {
+			return true
+		}
+	}
+	
+	// 拒绝包含敏感路径的命令
+	sensitivePaths := []string{
+		"/etc/",
+		"/bin/",
+		"/sbin/",
+		"/usr/bin/",
+		"/usr/sbin/",
+		"/var/",
+		"/root/",
+		"c:\\windows\\",
+		"c:\\program files\\",
+		"c:\\programdata\\",
+	}
+	
+	for _, path := range sensitivePaths {
+		if strings.Contains(command, path) {
+			return true
+		}
+	}
+	
 	return false
 }
 

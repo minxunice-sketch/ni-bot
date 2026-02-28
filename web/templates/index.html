@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ni Bot - 智能对话助手</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="header-content">
+                <h1 class="logo">
+                    <span class="logo-icon">🤖</span>
+                    Ni Bot
+                </h1>
+                <div class="status">
+                    <span class="status-dot"></span>
+                    <span class="status-text">已连接</span>
+                </div>
+            </div>
+        </header>
+
+        <main class="main">
+            <div class="chat-container">
+                <div class="chat-messages" id="chatMessages">
+                    <div class="message welcome">
+                        <div class="message-content">
+                            <h3>👋 欢迎使用 Ni Bot！</h3>
+                            <p>我是您的智能编程助手，可以帮您编写代码、解决问题、优化项目。</p>
+                            <p>试试问我："如何创建一个React组件？" 或 "帮我写一个Python爬虫"</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="input-container">
+                    <div class="input-wrapper">
+                        <textarea 
+                            id="messageInput" 
+                            placeholder="输入您的问题... (Shift+Enter换行，Enter发送)"
+                            rows="1"
+                        ></textarea>
+                        <button id="sendButton" class="send-button">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer class="footer">
+            <div class="footer-content">
+                <span>Ni Bot v1.1 • 安全可靠的AI编程助手</span>
+                <span class="shortcuts">
+                    <kbd>↑</kbd> 历史消息 • <kbd>Esc</kbd> 清空输入
+                </span>
+            </div>
+        </footer>
+    </div>
+
+    <script src="/static/js/chat.js"></script>
+</body>
+</html>
