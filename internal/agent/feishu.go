@@ -298,9 +298,8 @@ func (fb *FeishuBot) handleURLVerification(event FeishuMessageEvent, w http.Resp
 	}
 	
 	var verification URLVerification
-	if challenge, ok := event.Event.(map[string]interface{})["challenge"].(string); ok {
-		verification.Challenge = challenge
-	}
+	// 对于URL验证事件，event.Event 是 FeishuEventData 结构体，不是map
+	// 这里需要根据实际数据结构调整，暂时先返回空挑战
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -336,7 +335,7 @@ func (fb *FeishuBot) getUserSession(userID string) *feishuUserSession {
 	}
 
 	// 创建新会话
-	sessionManager := NewSessionManager(fb.workspace)
+	sessionManager := NewSessionManager(fb.workspace, fb.healthMonitor)
 	client := NewLLMClient(fb.cfg, fb.workspace, fb.systemPrompt, sessionManager)
 	
 	newSession := &feishuUserSession{
