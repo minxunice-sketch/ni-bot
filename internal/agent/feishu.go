@@ -293,17 +293,43 @@ func (fb *FeishuBot) handleMessageReceive(event FeishuMessageEvent, w http.Respo
 
 func (fb *FeishuBot) handleURLVerification(event FeishuMessageEvent, w http.ResponseWriter) {
 	// 飞书URL验证处理
-	type URLVerification struct {
+	w.Header().Set("Content-Type", "application/json")
+	
+	// 飞书URL验证需要返回特定的JSON格式
+	// 直接从请求体中解析challenge字段
+	var requestData struct {
+		Type      string `json:"type"`
 		Challenge string `json:"challenge"`
 	}
 	
-	var verification URLVerification
-	// 对于URL验证事件，event.Event 是 FeishuEventData 结构体，不是map
-	// 这里需要根据实际数据结构调整，暂时先返回空挑战
-
-	w.Header().Set("Content-Type", "application/json")
+	// 读取请求体
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		log.Printf("Failed to read request body: %v", err)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	
+	// 解析JSON
+	if err := json.Unmarshal(body, &requestData); err != nil {
+		log.Printf("Failed to parse JSON: %v", err)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	
+	// 返回飞书要求的验证格式
+	if requestData.Type == "url_verification" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"challenge": requestData.Challenge,
+		})
+		return
+	}
+	
+	// 对于其他类型的事件，返回通用响应
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"challenge": verification.Challenge,
+		"code": 0,
+		"msg": "Event received",
+		"data": nil,
 	})
 }
 
