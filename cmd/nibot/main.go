@@ -47,6 +47,18 @@ func main() {
 		_ = os.Setenv("NIBOT_VERSION", Version)
 	}
 
+	// 设置必开环境变量（确保核心功能默认启用）
+	if os.Getenv("NIBOT_ENABLE_EXEC") == "" {
+		_ = os.Setenv("NIBOT_ENABLE_EXEC", "1") // 必开：启用执行能力
+	}
+	if os.Getenv("GOPROXY") == "" {
+		_ = os.Setenv("GOPROXY", "https://goproxy.cn,direct") // 必开：国内镜像加速
+	}
+	// 清空LLM_API_BASE避免误入OpenAI默认地址
+	if os.Getenv("LLM_API_BASE") == "" {
+		_ = os.Setenv("LLM_API_BASE", "")
+	}
+
 	cwd, err := os.Getwd()
 	if err != nil {
 		log.Fatalf("Failed to get current working directory: %v", err)

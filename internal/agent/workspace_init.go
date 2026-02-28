@@ -8,8 +8,8 @@ import (
 func EnsureWorkspaceScaffold(workspace string) error {
 	dirs := []string{
 		workspace,
-		filepath.Join(workspace, "logs"),
-		filepath.Join(workspace, "memory"),
+		filepath.Join(workspace, "logs"),      // 必开：日志目录
+		filepath.Join(workspace, "memory"),    // 必开：记忆库目录
 		filepath.Join(workspace, "data"),
 		filepath.Join(workspace, "data", "sessions"),
 		filepath.Join(workspace, "skills"),
