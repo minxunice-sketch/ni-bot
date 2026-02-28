@@ -2,14 +2,56 @@
 
 Ni bot 是一个极简、文件驱动、可自进化的 AI Agent 原型：身份/记忆/技能都落在 `workspace/`，运行时自动扫描并注入提示词；模型通过输出 `[EXEC:...]` 触发工具，工具执行结果回灌给模型继续推理。
 
-## 运行
+## 🚀 快速开始
 
-### 前置条件
+### 多系统安装指南
+
+我们提供了详细的 [多系统安装指南](INSTALLATION.md)，包含：
+- 🍎 [macOS 安装指南](INSTALLATION.md#-macos-安装指南)
+- 🪟 [Windows 安装指南](INSTALLATION.md#-windows-安装指南)  
+- 🐧 [Linux 安装指南](INSTALLATION.md#-linux-安装指南)
+- 🐳 [Docker 容器化部署](INSTALLATION.md#-docker-部署)
+- 🤖 [智能启动脚本生成](INSTALLATION.md#-智能启动脚本生成)
+
+### 一键安装（推荐）
+
+使用智能安装脚本自动检测环境并配置：
+
+```bash
+# 克隆项目
+git clone https://github.com/minxunice-sketch/ni-bot.git
+cd ni-bot
+
+# 自动安装和配置
+./scripts/setup.sh --auto
+
+# 启动 Ni Bot
+go run ./cmd/nibot
+```
+
+或者使用平台专用脚本：
+```bash
+# macOS
+./start-mac.sh
+
+# Windows PowerShell
+.\start-windows.ps1
+
+# Linux
+./start-linux.sh
+
+# Docker
+./start-docker.sh
+```
+
+### 手动安装
+
+#### 前置条件
 
 - 已安装 Go（建议 1.21+），并确保在当前终端 `go version` 可用
 - 可选：已安装 Git（用于从 GitHub 克隆仓库）
 
-### 安装 Go（Windows / macOS / Linux）
+#### 安装 Go（Windows / macOS / Linux）
 
 Windows：
 
