@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ni Bot - 智能对话助手</title>
+    <title data-en="Ni Bot - AI Assistant" data-zh="Ni Bot - 智能对话助手">Ni Bot - 智能对话助手</title>
     <link rel="stylesheet" href="/static/css/style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
     <div class="container">
@@ -13,11 +12,17 @@
             <div class="header-content">
                 <h1 class="logo">
                     <span class="logo-icon">🤖</span>
-                    Ni Bot
+                    <span data-en="Ni Bot" data-zh="Ni Bot">Ni Bot</span>
                 </h1>
+                
+                <div class="language-switcher">
+                    <button class="lang-btn active" data-lang="zh">中文</button>
+                    <button class="lang-btn" data-lang="en">English</button>
+                </div>
+                
                 <div class="status">
                     <span class="status-dot"></span>
-                    <span class="status-text">已连接</span>
+                    <span class="status-text" data-en="Connected" data-zh="已连接">已连接</span>
                 </div>
             </div>
         </header>
@@ -25,11 +30,11 @@
         <main class="main">
             <div class="chat-container">
                 <div class="chat-messages" id="chatMessages">
-                    <div class="message welcome">
+                    <div class="message welcome system">
                         <div class="message-content">
-                            <h3>👋 欢迎使用 Ni Bot！</h3>
-                            <p>我是您的智能编程助手，可以帮您编写代码、解决问题、优化项目。</p>
-                            <p>试试问我："如何创建一个React组件？" 或 "帮我写一个Python爬虫"</p>
+                            <h3 data-en="👋 Welcome to Ni Bot!" data-zh="👋 欢迎使用 Ni Bot！">👋 欢迎使用 Ni Bot！</h3>
+                            <p data-en="I'm your intelligent programming assistant, here to help you write code, solve problems, and optimize projects." data-zh="我是您的智能编程助手，可以帮您编写代码、解决问题、优化项目。">我是您的智能编程助手，可以帮您编写代码、解决问题、优化项目。</p>
+                            <p data-en="Try asking me: \"How to create a React component?\" or \"Help me write a Python crawler\"" data-zh="试试问我：\"如何创建一个React组件？\" 或 \"帮我写一个Python爬虫\"">试试问我："如何创建一个React组件？" 或 "帮我写一个Python爬虫"</p>
                         </div>
                     </div>
                 </div>
@@ -39,6 +44,8 @@
                         <textarea 
                             id="messageInput" 
                             placeholder="输入您的问题... (Shift+Enter换行，Enter发送)"
+                            data-placeholder-en="Type your question... (Shift+Enter for new line, Enter to send)"
+                            data-placeholder-zh="输入您的问题... (Shift+Enter换行，Enter发送)"
                             rows="1"
                         ></textarea>
                         <button id="sendButton" class="send-button">

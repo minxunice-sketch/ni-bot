@@ -21,9 +21,9 @@ func EnsureConfig(workspace string, interactive bool, out io.Writer) error {
 
 	if !interactive {
 		content := renderConfigYAML(Config{
-			Provider:  "nvidia",
-			BaseURL:   defaultBaseURL("nvidia"),
-			ModelName: defaultModelName("nvidia"),
+			Provider:  "deepseek",
+			BaseURL:   defaultBaseURL("deepseek"),
+			ModelName: defaultModelName("deepseek"),
 			APIKey:    "",
 			LogLevel:  "",
 		})
@@ -138,6 +138,8 @@ func defaultModelName(provider string) string {
 		return "moonshotai/kimi-k2.5"
 	case "ollama":
 		return "qwen2.5:7b"
+	case "deepseek":
+		return "deepseek-chat"
 	default:
 		return "gpt-4-turbo"
 	}

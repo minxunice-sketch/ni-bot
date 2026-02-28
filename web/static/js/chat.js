@@ -4,10 +4,13 @@ class ChatApp {
         this.sessionId = this.generateSessionId();
         this.messageHistory = [];
         this.isConnected = false;
+        this.currentLanguage = 'zh'; // 默认中文
         
         this.initializeElements();
         this.bindEvents();
         this.connectWebSocket();
+        this.loadConversationHistory();
+        this.updateLanguageUI();
     }
 
     initializeElements() {
@@ -16,6 +19,7 @@ class ChatApp {
         this.chatMessages = document.getElementById('chatMessages');
         this.statusDot = document.querySelector('.status-dot');
         this.statusText = document.querySelector('.status-text');
+        this.languageButtons = document.querySelectorAll('.lang-btn');
     }
 
     bindEvents() {
@@ -52,6 +56,14 @@ class ChatApp {
             if (document.visibilityState === 'visible' && !this.isConnected) {
                 this.connectWebSocket();
             }
+        });
+
+        // 语言切换事件
+        this.languageButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                const lang = button.getAttribute('data-lang');
+                this.switchLanguage(lang);
+            });
         });
     }
 
@@ -276,6 +288,132 @@ class ChatApp {
         }
         
         this.adjustTextareaHeight();
+    }
+
+    // 语言切换功能
+    switchLanguage(lang) {
+        if (this.currentLanguage === lang) return;
+        
+        this.currentLanguage = lang;
+        
+        // 更新语言按钮状态
+        this.languageButtons.forEach(button => {
+            if (button.getAttribute('data-lang') === lang) {
+                button.classList.add('active');
+            } else {
+                button.classList.remove('active');
+            }
+        });
+        
+        // 更新界面文本
+        this.updateLanguageUI();
+        
+        // 保存语言偏好
+        localStorage.setItem('chat_language', lang);
+    }
+
+    // 更新界面文本内容
+    updateLanguageUI() {
+        // 更新所有带有 data-en 和 data-zh 属性的元素
+        const elements = document.querySelectorAll('[data-en], [data-zh]');
+        elements.forEach(element => {
+            const text = element.getAttribute(`data-${this.currentLanguage}`);
+            if (text) {
+                element.textContent = text;
+            }
+        });
+
+        // 更新连接状态文本
+        if (this.statusText) {
+            const statusTexts = {
+                zh: { connected: '已连接', disconnected: '连接中...', http: 'HTTP模式' },
+                en: { connected: 'Connected', disconnected: 'Connecting...', http: 'HTTP Mode' }
+            };
+            
+            if (this.isConnected) {
+                this.statusText.textContent = statusTexts[this.currentLanguage].connected;
+            } else if (this.statusText.textContent.includes('HTTP')) {
+                this.statusText.textContent = statusTexts[this.currentLanguage].http;
+            } else {
+                this.statusText.textContent = statusTexts[this.currentLanguage].disconnected;
+            }
+        }
+
+        // 更新输入框占位符
+        const placeholders = {
+            zh: '输入消息...',
+            en: 'Type a message...'
+        };
+        this.messageInput.placeholder = placeholders[this.currentLanguage];
+    }
+
+    // 加载对话历史
+    loadConversationHistory() {
+        try {
+            const savedHistory = sessionStorage.getItem('chat_history');
+            const savedLanguage = localStorage.getItem('chat_language');
+            
+            if (savedHistory) {
+                const history = JSON.parse(savedHistory);
+                history.forEach(msg => {
+                    this.addMessage(msg.type, msg.content);
+                });
+            }
+            
+            if (savedLanguage) {
+                this.switchLanguage(savedLanguage);
+            }
+        } catch (error) {
+            console.error('Failed to load conversation history:', error);
+        }
+    }
+
+    // 保存对话历史
+    saveConversationHistory() {
+        try {
+            const messages = [];
+            const messageElements = this.chatMessages.querySelectorAll('.message');
+            
+            messageElements.forEach(element => {
+                const type = element.classList.contains('user') ? 'user' : 
+                            element.classList.contains('assistant') ? 'assistant' : 'error';
+                const content = element.querySelector('.message-content').textContent;
+                messages.push({ type, content });
+            });
+            
+            sessionStorage.setItem('chat_history', JSON.stringify(messages));
+        } catch (error) {
+            console.error('Failed to save conversation history:', error);
+        }
+    }
+
+    // 重写 addMessage 方法以自动保存历史
+    addMessage(type, content) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${type}`;
+        
+        const avatar = document.createElement('div');
+        avatar.className = 'message-avatar';
+        avatar.innerHTML = type === 'user' ? '👤' : '🤖';
+        
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'message-content';
+        
+        // 处理代码块和格式化
+        const formattedContent = this.formatMessage(content);
+        contentDiv.innerHTML = formattedContent;
+        
+        messageDiv.appendChild(avatar);
+        messageDiv.appendChild(contentDiv);
+        
+        this.chatMessages.appendChild(messageDiv);
+        this.scrollToBottom();
+        
+        // 高亮代码块
+        this.highlightCodeBlocks(contentDiv);
+        
+        // 保存对话历史
+        this.saveConversationHistory();
     }
 }
 

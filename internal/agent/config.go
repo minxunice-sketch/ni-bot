@@ -85,7 +85,7 @@ func LoadConfig(workspace string) Config {
 	}
 
 	if !providerSet || strings.TrimSpace(cfg.Provider) == "" {
-		cfg.Provider = "nvidia"
+		cfg.Provider = "deepseek"
 		providerSet = true
 	}
 	if !baseURLSet || strings.TrimSpace(cfg.BaseURL) == "" {
@@ -113,6 +113,8 @@ func defaultBaseURL(provider string) string {
 		return "http://localhost:11434/v1"
 	case "nvidia", "nvidia_nim":
 		return "https://integrate.api.nvidia.com/v1"
+	case "deepseek":
+		return "https://api.deepseek.com/v1"
 	case "openai":
 		return ""
 	default:
