@@ -3,20 +3,20 @@
 ## 🚀 一分钟快速开始
 
 ### 1. 环境准备
-确保已安装 Go 1.21+：
+确保已安装 Go 1.24+：
 ```bash
 go version
-# 应该显示: go version go1.21+ ...
+# 应该显示: go version go1.24+ ...
 ```
 
 ### 2. 下载和运行
 ```bash
-# 克隆项目（如果尚未克隆）
-git clone <repository-url>
-cd ai-agent
+# 克隆项目
+git clone https://github.com/minxunice-sketch/ni-bot.git
+cd ni-bot
 
-# 直接运行（Mock模式，无需API密钥）
-go run .\cmd\nibot
+# 直接运行（首次运行会引导生成 workspace/data/config.yaml）
+go run ./cmd/nibot
 ```
 
 ### 3. 首次对话
@@ -49,13 +49,15 @@ go run .\cmd\nibot
 
 提示：`LLM_BASE_URL` 不要包含反引号或空格；浏览器直接打开该地址显示 404 属于正常。`NVIDIA_API_KEY` 也可作为 `LLM_API_KEY` 的等价变量。
 
-#### 方法2：使用.env文件
-在 `workspace/.env` 中配置：
-```bash
-LLM_PROVIDER=nvidia
-LLM_BASE_URL=https://integrate.api.nvidia.com/v1
-LLM_MODEL_NAME=moonshotai/kimi-k2.5
-LLM_API_KEY=nvapi-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+#### 方法2：使用配置文件（推荐）
+首次运行会自动生成 `workspace/data/config.yaml`，也可以手动编辑该文件：
+```yaml
+llm:
+  provider: nvidia
+  base_url: https://integrate.api.nvidia.com/v1
+  model: moonshotai/kimi-k2.5
+  api_key: ""
+  log_level: full
 ```
 
 ### 安全配置（推荐）
@@ -118,10 +120,15 @@ $env:NIBOT_EVOLUTION_STRATEGY="balanced"
 ```
 
 ### 健康监控端点
-Ni bot提供以下监控端点：
-- **健康检查**: http://localhost:8080/health
-- **性能指标**: http://localhost:8080/metrics (JSON格式)
-- **统计信息**: http://localhost:8080/stats (可读格式)
+健康监控 HTTP 端点默认不启动；设置 `NIBOT_HEALTH_PORT` 后启用：
+```powershell
+$env:NIBOT_HEALTH_PORT="8082"
+go run .\cmd\nibot
+```
+启用后可访问：
+- **健康检查**: http://localhost:8082/health
+- **性能指标**: http://localhost:8082/metrics (JSON格式)
+- **统计信息**: http://localhost:8082/stats (可读格式)
 
 ## 🛠️ 高级功能配置
 
@@ -211,10 +218,10 @@ $env:NIBOT_PERF_MONITORING="true"
 git pull
 
 # 重新构建
-go build .\cmd\nibot
+go build ./cmd/nibot
 
 # 或直接运行
-go run .\cmd\nibot
+go run ./cmd/nibot
 ```
 
 ### 数据备份

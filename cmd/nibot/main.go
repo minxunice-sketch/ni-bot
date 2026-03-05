@@ -47,20 +47,18 @@ func main() {
 		fmt.Println(Version)
 		return
 	}
+	if len(cmds) == 0 {
+		if args := flag.Args(); len(args) > 0 {
+			cmds = append(cmds, strings.Join(args, " "))
+		}
+	}
 	if strings.TrimSpace(os.Getenv("NIBOT_VERSION")) == "" {
 		_ = os.Setenv("NIBOT_VERSION", Version)
 	}
 
-	// 设置必开环境变量（确保核心功能默认启用）
-	if os.Getenv("NIBOT_ENABLE_EXEC") == "" {
-		_ = os.Setenv("NIBOT_ENABLE_EXEC", "1") // 必开：启用执行能力
-	}
+	// 默认设置：仅提供国内 Go 依赖加速（不会改变工具安全开关的默认行为）
 	if os.Getenv("GOPROXY") == "" {
-		_ = os.Setenv("GOPROXY", "https://goproxy.cn,direct") // 必开：国内镜像加速
-	}
-	// 清空LLM_API_BASE避免误入OpenAI默认地址
-	if os.Getenv("LLM_API_BASE") == "" {
-		_ = os.Setenv("LLM_API_BASE", "")
+		_ = os.Setenv("GOPROXY", "https://goproxy.cn,direct")
 	}
 
 	cwd, err := os.Getwd()
@@ -77,14 +75,14 @@ func main() {
 	enableExec := os.Getenv("NIBOT_ENABLE_EXEC")
 	enableSkills := os.Getenv("NIBOT_ENABLE_SKILLS")
 	autoApprove := os.Getenv("NIBOT_AUTO_APPROVE")
-	
+
 	getStatusDisplay := func(enabled bool) string {
 		if enabled {
 			return "✅ ON"
 		}
 		return "❌ OFF"
 	}
-	
+
 	getEnvDisplay := func(key string) string {
 		value := os.Getenv(key)
 		if value == "" {
@@ -95,14 +93,14 @@ func main() {
 		}
 		return value
 	}
-	
+
 	log.Printf("🚀 Starting Ni bot (v%s)", Version)
 	log.Printf("   Workspace: %s", workspace)
 	log.Printf("   EXEC: %s", getStatusDisplay(enableExec == "1"))
 	log.Printf("   SKILLS: %s", getStatusDisplay(enableSkills == "1"))
 	log.Printf("   AUTO_APPROVE: %s", getStatusDisplay(autoApprove == "true"))
 	log.Printf("   GOPROXY: %s", getEnvDisplay("GOPROXY"))
-	log.Printf("   LLM_API_BASE: %s", getEnvDisplay("LLM_API_BASE"))
+	log.Printf("   LLM_BASE_URL: %s", getEnvDisplay("LLM_BASE_URL"))
 
 	// 自动创建工作目录（集成start.sh逻辑到Go代码）
 	if err := os.MkdirAll(filepath.Join(workspace, "logs"), 0o755); err != nil {
@@ -114,8 +112,6 @@ func main() {
 	if err := os.MkdirAll(filepath.Join(workspace, "data"), 0o755); err != nil {
 		log.Printf("Warning: Failed to create data directory: %v", err)
 	}
-
-
 
 	if err := agent.EnsureWorkspaceScaffold(workspace); err != nil {
 		log.Fatalf("Failed to initialize workspace: %v", err)
@@ -153,7 +149,7 @@ func main() {
 	}
 	defer logger.Close()
 	log.Printf("Session trace will be written to: %s", logFile)
-	
+
 	writeLog(logger, fmt.Sprintf("# Session Trace: %s\n\n**Provider**: %s\n**Model**: %s\n\n---\n", sessionID, cfg.Provider, cfg.ModelName))
 
 	systemPrompt, err := agent.ConstructSystemPrompt(workspace)
@@ -168,7 +164,7 @@ func main() {
 	log.Println("System Prompt constructed successfully.")
 
 	fmt.Println("Ni bot is ready.")
-	
+
 	client := agent.NewLLMClient(cfg, workspace, systemPrompt, sessionManager)
 
 	// 启动飞书机器人（如果启用）
@@ -178,7 +174,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("Failed to create Feishu bot: %v", err)
 		}
-		
+
 		log.Printf("Starting Feishu bot in background...")
 		go func() {
 			ctx := context.Background()
@@ -186,7 +182,7 @@ func main() {
 				log.Printf("Feishu bot stopped with error: %v", err)
 			}
 		}()
-		
+
 		// 等待飞书服务器启动
 		time.Sleep(2 * time.Second)
 	}
@@ -198,7 +194,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("Failed to create Telegram bot: %v", err)
 		}
-		
+
 		log.Printf("Starting Telegram bot in background...")
 		go func() {
 			ctx := context.Background()
@@ -206,7 +202,7 @@ func main() {
 				log.Printf("Telegram bot stopped with error: %v", err)
 			}
 		}()
-		
+
 		// 等待 Telegram 机器人启动
 		time.Sleep(2 * time.Second)
 	}

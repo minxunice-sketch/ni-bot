@@ -13,33 +13,19 @@
 
 ### 系统要求
 - macOS 10.15+ (Catalina 或更高版本)
-- Go 1.18+ 
+- Go 1.24+ 
 - Git
 
-### 自动安装脚本
+### 推荐安装方式（仓库内置脚本）
 ```bash
-# 下载并运行自动安装脚本
-curl -fsSL https://raw.githubusercontent.com/minxunice-sketch/ni-bot/main/scripts/install-mac.sh | bash
-
-# 或者手动安装
 cd ~/Documents
 git clone https://github.com/minxunice-sketch/ni-bot.git
 cd ni-bot
 
-# 安装 Homebrew (如果未安装)
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+# 自动检测环境、检查依赖、生成平台启动脚本
+./scripts/setup.sh --auto
 
-# 安装依赖
-brew install go git
-
-# 配置 Go 环境
-go env -w GOPROXY=https://goproxy.cn,direct
-go mod download
-
-# 生成启动脚本
-./scripts/setup.sh --generate-scripts
-
-# 启动 Ni Bot
+# 启动（如已生成 start-mac.sh）
 ./start-mac.sh
 ```
 
@@ -57,36 +43,22 @@ go mod download
 
 ### 系统要求
 - Windows 10/11
-- Go 1.18+
+- Go 1.24+
 - Git for Windows
 
-### 自动安装 (PowerShell)
+### 推荐安装方式（仓库内置脚本）
 ```powershell
 # 以管理员身份运行 PowerShell
 Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
 
-# 下载并运行安装脚本
-irm https://raw.githubusercontent.com/minxunice-sketch/ni-bot/main/scripts/install-windows.ps1 | iex
-
-# 或者手动安装
 cd $HOME\Documents
 git clone https://github.com/minxunice-sketch/ni-bot.git
 cd ni-bot
 
-# 安装 Chocolatey (包管理器)
-Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+# 自动检测环境、检查依赖、生成平台启动脚本
+.\scripts\setup.ps1 -Auto
 
-# 安装依赖
-choco install golang git -y
-
-# 配置环境
-$env:GOPROXY = "https://goproxy.cn,direct"
-go mod download
-
-# 生成启动脚本
-.\scripts\setup.ps1 -GenerateScripts
-
-# 启动 Ni Bot
+# 启动（如已生成 start-windows.ps1）
 .\start-windows.ps1
 ```
 
@@ -110,9 +82,6 @@ go mod download
 
 ### Ubuntu/Debian
 ```bash
-# 自动安装脚本
-curl -fsSL https://raw.githubusercontent.com/minxunice-sketch/ni-bot/main/scripts/install-ubuntu.sh | bash
-
 # 手动安装
 sudo apt update
 sudo apt install -y golang git
@@ -124,7 +93,7 @@ cd ni-bot
 go env -w GOPROXY=https://goproxy.cn,direct
 go mod download
 
-# 生成启动脚本
+# 生成启动脚本（推荐）
 ./scripts/setup.sh --generate-scripts
 
 # 启动
@@ -174,8 +143,8 @@ services:
 # 创建配置目录
 mkdir -p workspace/data
 
-# 下载 docker-compose.yml
-curl -o docker-compose.yml https://raw.githubusercontent.com/minxunice-sketch/ni-bot/main/docker-compose.yml
+# 生成示例 docker-compose.yml（需要 docker + docker-compose）
+./start-docker.sh
 
 # 启动服务
 docker-compose up -d
@@ -184,12 +153,11 @@ docker-compose up -d
 docker-compose logs -f
 ```
 
-### 直接使用 Docker
-```bash
-# 拉取镜像
-docker pull minxunice/ni-bot:latest
+提示：仓库当前不包含 Dockerfile；`start-docker.sh` 与上述 compose 主要提供一个示例模板。若你没有 `minxunice/ni-bot:latest` 镜像，请将 `image:` 替换为你自己的镜像（或自行构建）。
 
-# 运行容器
+### 直接使用 Docker（可选）
+```bash
+# 运行容器（示例；需要你已拥有可用镜像）
 docker run -d \
   -p 8080:8080 \
   -v $(pwd)/workspace:/app/workspace \
@@ -440,24 +408,28 @@ cd ni-bot
 # 自动安装和配置
 ./scripts/setup.sh --auto
 
-# 启动 Ni Bot
+# 启动 Ni Bot（CLI 交互）
 go run ./cmd/nibot
 ```
 
 ### 访问 Web 界面
+Web 界面需要单独启动：
+```bash
+go run ./cmd/web
+```
 启动成功后，打开浏览器访问：
-- http://localhost:8080
+- http://localhost:8080 （可用 `NIBOT_WEB_PORT` 修改端口）
 
 ## 📊 系统要求检查
 
 ### 最低要求
-- Go 1.18+
+- Go 1.24+
 - 1GB RAM
 - 100MB 磁盘空间
 - 网络连接
 
 ### 推荐配置  
-- Go 1.20+
+- Go 1.24+
 - 2GB+ RAM
 - 1GB 磁盘空间
 - 稳定的网络连接
@@ -483,8 +455,8 @@ export HTTPS_PROXY=http://proxy.example.com:8080
 #### Q: 端口 8080 被占用
 A: 使用其他端口
 ```bash
-export NIBOT_HTTP_PORT=8081
-go run ./cmd/nibot
+export NIBOT_WEB_PORT=8081
+go run ./cmd/web
 ```
 
 #### Q: 权限不足

@@ -46,7 +46,9 @@ func runSelfUpdate(out io.Writer) error {
 		return err
 	}
 	if stashed {
-		_, _ = runUpdateCmd(out, dir, gitPath, []string{"stash", "pop"}, 2*time.Minute)
+		if _, err := runUpdateCmd(out, dir, gitPath, []string{"stash", "pop"}, 2*time.Minute); err != nil {
+			return fmt.Errorf("update applied but stash pop failed: %w", err)
+		}
 	}
 
 	if _, err := runUpdateCmd(out, dir, goPath, []string{"mod", "tidy"}, 5*time.Minute); err != nil {

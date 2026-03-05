@@ -41,6 +41,17 @@ func TestExtractExecCalls_DoesNotTerminateOnBracketInString(t *testing.T) {
 	}
 }
 
+func TestToolInstallSkill_RejectsInvalidLayer(t *testing.T) {
+	ctx := ExecContext{Workspace: t.TempDir(), Policy: DefaultToolPolicy()}
+	_, err := toolInstallSkill(ctx, `{"name":"x","url":"https://example.com/x.git","layer":"bad"}`)
+	if err == nil {
+		t.Fatalf("expected invalid layer error")
+	}
+	if !strings.Contains(err.Error(), "layer") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestToolFSWrite_AppendAddsNewlineBetweenEntries(t *testing.T) {
 	ws := t.TempDir()
 	ctx := ExecContext{Workspace: ws}

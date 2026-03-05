@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -14,14 +16,14 @@ import (
 )
 
 type TelegramConfig struct {
-	Enabled           bool
-	BotToken         string
-	AllowedUserIDs   []int64
-	ProxyURL         string
-	Timeout          time.Duration
-	MaxConcurrent    int
+	Enabled            bool
+	BotToken           string
+	AllowedUserIDs     []int64
+	ProxyURL           string
+	Timeout            time.Duration
+	MaxConcurrent      int
 	LongPollingTimeout int
-	Debug            bool
+	Debug              bool
 }
 
 type telegramUserSession struct {
@@ -45,18 +47,24 @@ type TelegramBot struct {
 
 func NewTelegramConfig() *TelegramConfig {
 	config := &TelegramConfig{
-		Enabled:           os.Getenv("NIBOT_ENABLE_TELEGRAM") == "true" || os.Getenv("TELEGRAM_BOT_TOKEN") != "",
-		BotToken:         os.Getenv("TELEGRAM_BOT_TOKEN"),
-		ProxyURL:         os.Getenv("TELEGRAM_PROXY_URL"),
-		Timeout:          30 * time.Second,
-		MaxConcurrent:    10,
+		Enabled:            parseBool(os.Getenv("NIBOT_ENABLE_TELEGRAM"), false) || strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN")) != "",
+		BotToken:           os.Getenv("TELEGRAM_BOT_TOKEN"),
+		ProxyURL:           os.Getenv("TELEGRAM_PROXY_URL"),
+		Timeout:            30 * time.Second,
+		MaxConcurrent:      10,
 		LongPollingTimeout: 60,
-		Debug:           os.Getenv("TELEGRAM_DEBUG") == "true",
+		Debug:              parseBool(os.Getenv("TELEGRAM_DEBUG"), false),
 	}
 
 	// 解析超时设置
 	if timeoutStr := os.Getenv("TELEGRAM_TIMEOUT"); timeoutStr != "" {
 		if timeout, err := strconv.Atoi(timeoutStr); err == nil {
+			if timeout < 1 {
+				timeout = 1
+			}
+			if timeout > 600 {
+				timeout = 600
+			}
 			config.Timeout = time.Duration(timeout) * time.Second
 		}
 	}
@@ -64,6 +72,12 @@ func NewTelegramConfig() *TelegramConfig {
 	// 解析并发数设置
 	if concurrentStr := os.Getenv("TELEGRAM_MAX_CONCURRENT"); concurrentStr != "" {
 		if concurrent, err := strconv.Atoi(concurrentStr); err == nil {
+			if concurrent < 1 {
+				concurrent = 1
+			}
+			if concurrent > 200 {
+				concurrent = 200
+			}
 			config.MaxConcurrent = concurrent
 		}
 	}
@@ -71,6 +85,12 @@ func NewTelegramConfig() *TelegramConfig {
 	// 解析长轮询超时
 	if pollingStr := os.Getenv("TELEGRAM_LONG_POLLING_TIMEOUT"); pollingStr != "" {
 		if polling, err := strconv.Atoi(pollingStr); err == nil {
+			if polling < 1 {
+				polling = 1
+			}
+			if polling > 300 {
+				polling = 300
+			}
 			config.LongPollingTimeout = polling
 		}
 	}
@@ -96,7 +116,32 @@ func NewTelegramBot(telegramCfg *TelegramConfig, cfg Config, workspace string, s
 		return nil, fmt.Errorf("telegram bot token is required")
 	}
 
-	bot, err := tgbotapi.NewBotAPI(strings.TrimSpace(telegramCfg.BotToken))
+	timeout := telegramCfg.Timeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+
+	var transport *http.Transport
+	if base, ok := http.DefaultTransport.(*http.Transport); ok && base != nil {
+		transport = base.Clone()
+	} else {
+		transport = (&http.Transport{}).Clone()
+	}
+
+	proxyURL := strings.TrimSpace(telegramCfg.ProxyURL)
+	if proxyURL != "" {
+		u, err := url.Parse(proxyURL)
+		if err != nil {
+			return nil, fmt.Errorf("invalid telegram proxy url: %v", err)
+		}
+		if u.Scheme != "http" && u.Scheme != "https" {
+			return nil, fmt.Errorf("telegram proxy url scheme must be http or https")
+		}
+		transport.Proxy = http.ProxyURL(u)
+	}
+
+	httpClient := &http.Client{Timeout: timeout, Transport: transport}
+	bot, err := tgbotapi.NewBotAPIWithClient(strings.TrimSpace(telegramCfg.BotToken), tgbotapi.APIEndpoint, httpClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create telegram bot: %v", err)
 	}
@@ -121,6 +166,9 @@ func NewTelegramBot(telegramCfg *TelegramConfig, cfg Config, workspace string, s
 }
 
 func (tb *TelegramBot) Start(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	tb.mu.Lock()
 	tb.cancel = cancel
@@ -138,8 +186,17 @@ func (tb *TelegramBot) Start(ctx context.Context) error {
 		case <-ctx.Done():
 			log.Println("Telegram bot stopped")
 			return nil
-		case update := <-updates:
-			tb.sem <- struct{}{}
+		case update, ok := <-updates:
+			if !ok {
+				log.Println("Telegram updates channel closed")
+				return nil
+			}
+			select {
+			case tb.sem <- struct{}{}:
+			case <-ctx.Done():
+				log.Println("Telegram bot stopped")
+				return nil
+			}
 			go func(u tgbotapi.Update) {
 				defer func() { <-tb.sem }()
 				tb.handleUpdate(u)
@@ -162,10 +219,17 @@ func (tb *TelegramBot) handleUpdate(update tgbotapi.Update) {
 	if update.Message == nil {
 		return
 	}
+	if update.Message.From == nil || update.Message.Chat == nil {
+		return
+	}
 
 	userID := update.Message.From.ID
 	chatID := update.Message.Chat.ID
 	text := strings.TrimSpace(update.Message.Text)
+	text = truncateRunes(text, 4000)
+	if text == "" {
+		return
+	}
 
 	if !tb.isUserAllowed(userID) {
 		tb.sendMessage(chatID, "抱歉，您没有权限使用此机器人")
@@ -222,11 +286,27 @@ func (tb *TelegramBot) getUserSession(userID int64) *telegramUserSession {
 }
 
 func (tb *TelegramBot) sendMessage(chatID int64, text string) {
+	text = strings.TrimSpace(text)
+	text = truncateRunes(text, 3500)
+	if text == "" {
+		text = " "
+	}
 	msg := tgbotapi.NewMessage(chatID, text)
 	_, err := tb.bot.Send(msg)
 	if err != nil {
 		log.Printf("Error sending message: %v", err)
 	}
+}
+
+func truncateRunes(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max])
 }
 
 func (tb *TelegramBot) handleCommand(userID int64, chatID int64, text string) {

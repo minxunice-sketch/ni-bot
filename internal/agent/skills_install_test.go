@@ -59,6 +59,30 @@ func TestInstallSkillsFromPath_IgnoresNoiseDirs(t *testing.T) {
 	}
 }
 
+func TestInstallSkillsFromPath_InstallsToOverridesLayer(t *testing.T) {
+	t.Setenv("NIBOT_SKILLS_INSTALL_LAYER", "overrides")
+	ws := t.TempDir()
+	src := filepath.Join(t.TempDir(), "echo")
+
+	if err := os.MkdirAll(filepath.Join(src, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "scripts", "echo.cmd"), []byte("@echo hi\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	installed, err := InstallSkillsFromPath(ws, src)
+	if err != nil {
+		t.Fatalf("install failed: %v", err)
+	}
+	if len(installed) != 1 || installed[0] != "echo" {
+		t.Fatalf("unexpected installed: %#v", installed)
+	}
+	if _, err := os.Stat(filepath.Join(ws, "skills", "_overrides", "echo", "scripts", "echo.cmd")); err != nil {
+		t.Fatalf("expected installed file in overrides: %v", err)
+	}
+}
+
 func TestInstallSkillsFromPath_EnforcesMaxFileBytes(t *testing.T) {
 	t.Setenv("NIBOT_SKILLS_MAX_FILE_BYTES", "10")
 	ws := t.TempDir()

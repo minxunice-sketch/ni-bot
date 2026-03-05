@@ -60,6 +60,8 @@ func InstallSkillsFromPathWithOrigin(workspace string, src string, origin string
 	dstRoot := filepath.Join(workspace, "skills")
 	if layer == "upstream" {
 		dstRoot = filepath.Join(dstRoot, "_upstream")
+	} else if layer == "override" || layer == "overrides" {
+		dstRoot = filepath.Join(dstRoot, "_overrides")
 	}
 	_ = os.MkdirAll(dstRoot, 0o755)
 

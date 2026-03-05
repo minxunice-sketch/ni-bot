@@ -31,16 +31,19 @@ go run ./cmd/nibot
 
 或者使用平台专用脚本：
 ```bash
-# macOS
-./start-mac.sh
+# macOS / Linux：先生成平台脚本（推荐）
+./scripts/setup.sh --generate-scripts
+./start-mac.sh    # macOS
+./start-linux.sh  # Linux
 
-# Windows PowerShell
+# macOS / Linux：不生成脚本也可直接运行
+./start.sh
+
+# Windows PowerShell（已提供脚本；也可用 run.ps1）
 .\start-windows.ps1
+# 或：.\run.ps1 -EnableExec -EnableSkills
 
-# Linux
-./start-linux.sh
-
-# Docker
+# Docker（生成 docker-compose.yml 示例；需要自行替换镜像配置）
 ./start-docker.sh
 ```
 
@@ -48,7 +51,7 @@ go run ./cmd/nibot
 
 #### 前置条件
 
-- 已安装 Go（建议 1.21+），并确保在当前终端 `go version` 可用
+- 已安装 Go（建议 1.24+），并确保在当前终端 `go version` 可用
 - 可选：已安装 Git（用于从 GitHub 克隆仓库）
 
 #### 安装 Go（Windows / macOS / Linux）
@@ -327,12 +330,28 @@ Ni bot 支持完整的会话持久化功能：
 - `memory.list`：列出最近记录
 - `memory.stats`：统计信息
 
+#### 自动召回注入（Auto-Recall）
+启用 SQLite 记忆库后，Ni bot 会在每次请求模型前自动检索并注入“可能相关的记忆条目”，避免把全部 `workspace/memory/*.md` 全量塞进 prompt。
+
+可选环境变量：
+- `NIBOT_AUTO_RECALL`：是否启用（默认开启；设为 `0` 关闭）
+- `NIBOT_AUTO_RECALL_SCOPE`：检索 scope（默认 `global`）
+- `NIBOT_AUTO_RECALL_LIMIT`：最多注入条目数（默认 6，最大 20）
+- `NIBOT_AUTO_RECALL_MAX_BYTES`：注入区块最大字节数（默认 1200）
+
 ### 健康监控
 
-内置健康监控系统提供生产级可观测性：
-- **健康检查端点**: `http://localhost:8080/health`
-- **性能指标端点**: `http://localhost:8080/metrics` (JSON格式)
-- **统计信息端点**: `http://localhost:8080/stats` (可读格式)
+内置健康监控系统提供生产级可观测性。默认不启动 HTTP 端点；设置 `NIBOT_HEALTH_PORT` 后启用：
+
+```powershell
+$env:NIBOT_HEALTH_PORT="8082"
+go run .\cmd\nibot
+```
+
+启用后可访问：
+- **健康检查端点**: `http://localhost:8082/health`
+- **性能指标端点**: `http://localhost:8082/metrics` (JSON格式)
+- **统计信息端点**: `http://localhost:8082/stats` (可读格式)
 
 监控指标包括：
 - 运行时间、活跃会话数、总消息数
@@ -411,8 +430,8 @@ allowed_skill_scripts = "*"
 
 ### 自动 Reload
 
-- `NIBOT_AUTO_RELOAD=1`：开启轮询检测 workspace 变更，自动重载 system prompt 与 policy
-- `NIBOT_AUTO_RELOAD_INTERVAL_MS`（默认 1000）：轮询间隔（200–10000）
+- `NIBOT_AUTO_RELOAD=1`：开启自动重载（优先使用 fsnotify 监听 workspace 变更；不可用时回退到轮询）
+- `NIBOT_AUTO_RELOAD_INTERVAL_MS`（默认 1000）：仅用于轮询回退模式的间隔（200–10000）
 
 ## 创建一个技能（示例）
 
@@ -515,7 +534,7 @@ export TELEGRAM_BOT_TOKEN="your_bot_token_here"
 
 # 可选配置
 export TELEGRAM_ALLOWED_USER_IDS="123456789,987654321"  # 允许的用户ID，逗号分隔
-export TELEGRAM_PROXY_URL=""  # 代理URL（如果需要）
+export TELEGRAM_PROXY_URL=""  # 代理URL（如需代理；仅支持 http/https）
 export TELEGRAM_TIMEOUT="30"  # 请求超时（秒）
 export TELEGRAM_MAX_CONCURRENT="10"  # 最大并发数
 export TELEGRAM_DEBUG="false"  # 调试模式
@@ -537,6 +556,8 @@ export TELEGRAM_DEBUG="false"  # 调试模式
 ## 🐦 飞书机器人适配指南
 
 Ni Bot 支持通过飞书开放平台提供企业级机器人服务，让你可以在飞书客户端里与 Ni Bot 交互。
+
+提示：飞书适配仍在完善中，当前默认回复为模拟响应；用于对接/联调 webhook 与基础会话管理。
 
 ### 启动方式
 
@@ -563,6 +584,9 @@ export FEISHU_HTTP_PORT="8081"  # HTTP服务器端口
 export FEISHU_TIMEOUT="30"  # 请求超时（秒）
 export FEISHU_MAX_CONCURRENT="10"  # 最大并发数
 export FEISHU_DEBUG="false"  # 调试模式
+
+# 可选：显式启用（不设置也会在检测到 FEISHU_APP_ID 时启用）
+export NIBOT_ENABLE_FEISHU="true"
 ```
 
 ### 使用说明

@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -36,12 +38,12 @@ type FeishuBot struct {
 	workspace     string
 	systemPrompt  string
 	healthMonitor *HealthMonitor
-	
-	sessions      map[string]*feishuUserSession
-	mu            sync.RWMutex
-	cancel        context.CancelFunc
-	sem           chan struct{}
-	httpServer    *http.Server
+
+	sessions   map[string]*feishuUserSession
+	mu         sync.RWMutex
+	cancel     context.CancelFunc
+	sem        chan struct{}
+	httpServer *http.Server
 }
 
 // FeishuMessage 飞书消息结构
@@ -49,9 +51,9 @@ type FeishuBot struct {
 // 参考: https://open.feishu.cn/document/ukTMukTMukTM/uYDNxYjL2QTM24iN0EjN/event-subscription
 
 type FeishuMessageEvent struct {
-	Schema string          `json:"schema"`
+	Schema string            `json:"schema"`
 	Header FeishuEventHeader `json:"header"`
-	Event  FeishuEventData  `json:"event"`
+	Event  FeishuEventData   `json:"event"`
 }
 
 type FeishuEventHeader struct {
@@ -75,20 +77,20 @@ type FeishuSender struct {
 }
 
 type FeishuSenderID struct {
-	UserID string `json:"user_id"`
-	OpenID string `json:"open_id"`
+	UserID  string `json:"user_id"`
+	OpenID  string `json:"open_id"`
 	UnionID string `json:"union_id"`
 }
 
 type FeishuMessage struct {
-	MessageID   string          `json:"message_id"`
-	RootID      string          `json:"root_id"`
-	ParentID    string          `json:"parent_id"`
-	CreateTime  string          `json:"create_time"`
-	ChatID      string          `json:"chat_id"`
-	ChatType    string          `json:"chat_type"`
-	MessageType string          `json:"message_type"`
-	Content     string          `json:"content"`
+	MessageID   string `json:"message_id"`
+	RootID      string `json:"root_id"`
+	ParentID    string `json:"parent_id"`
+	CreateTime  string `json:"create_time"`
+	ChatID      string `json:"chat_id"`
+	ChatType    string `json:"chat_type"`
+	MessageType string `json:"message_type"`
+	Content     string `json:"content"`
 }
 
 // FeishuTextContent 文本消息内容
@@ -98,27 +100,33 @@ type FeishuTextContent struct {
 
 // FeishuAPIResponse 飞书API响应
 type FeishuAPIResponse struct {
-	Code    int         `json:"code"`
-	Msg     string      `json:"msg"`
-	Data    interface{} `json:"data"`
+	Code int         `json:"code"`
+	Msg  string      `json:"msg"`
+	Data interface{} `json:"data"`
 }
 
 func NewFeishuConfig() *FeishuConfig {
 	config := &FeishuConfig{
-		Enabled:           os.Getenv("NIBOT_ENABLE_FEISHU") == "true" || os.Getenv("FEISHU_APP_ID") != "",
-		AppID:            os.Getenv("FEISHU_APP_ID"),
-		AppSecret:        os.Getenv("FEISHU_APP_SECRET"),
+		Enabled:           parseBool(os.Getenv("NIBOT_ENABLE_FEISHU"), false) || strings.TrimSpace(os.Getenv("FEISHU_APP_ID")) != "",
+		AppID:             os.Getenv("FEISHU_APP_ID"),
+		AppSecret:         os.Getenv("FEISHU_APP_SECRET"),
 		VerificationToken: os.Getenv("FEISHU_VERIFICATION_TOKEN"),
-		EncryptKey:       os.Getenv("FEISHU_ENCRYPT_KEY"),
-		WebhookURL:       os.Getenv("FEISHU_WEBHOOK_URL"),
-		Timeout:          30 * time.Second,
-		MaxConcurrent:    10,
-		Debug:           os.Getenv("FEISHU_DEBUG") == "true",
+		EncryptKey:        os.Getenv("FEISHU_ENCRYPT_KEY"),
+		WebhookURL:        os.Getenv("FEISHU_WEBHOOK_URL"),
+		Timeout:           30 * time.Second,
+		MaxConcurrent:     10,
+		Debug:             parseBool(os.Getenv("FEISHU_DEBUG"), false),
 	}
 
 	// 解析超时设置
 	if timeoutStr := os.Getenv("FEISHU_TIMEOUT"); timeoutStr != "" {
 		if timeout, err := strconv.Atoi(timeoutStr); err == nil {
+			if timeout < 1 {
+				timeout = 1
+			}
+			if timeout > 600 {
+				timeout = 600
+			}
 			config.Timeout = time.Duration(timeout) * time.Second
 		}
 	}
@@ -126,6 +134,12 @@ func NewFeishuConfig() *FeishuConfig {
 	// 解析并发数设置
 	if concurrentStr := os.Getenv("FEISHU_MAX_CONCURRENT"); concurrentStr != "" {
 		if concurrent, err := strconv.Atoi(concurrentStr); err == nil {
+			if concurrent < 1 {
+				concurrent = 1
+			}
+			if concurrent > 200 {
+				concurrent = 200
+			}
 			config.MaxConcurrent = concurrent
 		}
 	}
@@ -168,6 +182,17 @@ func (fb *FeishuBot) Start(ctx context.Context) error {
 		return fmt.Errorf("feishu config validation failed: %v", err)
 	}
 
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	fb.cancel = cancel
+
+	go func() {
+		<-ctx.Done()
+		fb.Stop()
+	}()
+
 	// 启动HTTP服务器接收飞书消息
 	if fb.config.WebhookURL == "" {
 		return fb.startHTTPServer(ctx)
@@ -206,7 +231,7 @@ func (fb *FeishuBot) startHTTPServer(ctx context.Context) error {
 	}
 
 	log.Printf("Feishu HTTP server starting on port %s", port)
-	
+
 	go func() {
 		if err := fb.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Printf("Feishu HTTP server error: %v", err)
@@ -218,45 +243,95 @@ func (fb *FeishuBot) startHTTPServer(ctx context.Context) error {
 
 func (fb *FeishuBot) startWebhookMode(ctx context.Context) error {
 	log.Printf("Starting Feishu bot in webhook mode with URL: %s", fb.config.WebhookURL)
-	// 实现webhook模式的定期检查或长连接
-	return nil
+	return fb.startHTTPServer(ctx)
 }
 
 func (fb *FeishuBot) handleWebhook(w http.ResponseWriter, r *http.Request) {
-	// 验证请求（飞书验证token）
-	if !fb.verifyRequest(r) {
-		http.Error(w, "Invalid verification token", http.StatusUnauthorized)
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// 解析飞书消息
+	defer r.Body.Close()
+
+	const defaultMaxBody = int64(1024 * 1024)
+	maxBody := defaultMaxBody
+	if v := strings.TrimSpace(os.Getenv("FEISHU_MAX_BODY_BYTES")); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			if n < 4096 {
+				n = 4096
+			}
+			if n > 10*1024*1024 {
+				n = 10 * 1024 * 1024
+			}
+			maxBody = n
+		}
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBody)
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Request body too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+
+	var verifyReq struct {
+		Type      string `json:"type"`
+		Challenge string `json:"challenge"`
+		Token     string `json:"token"`
+		Header    struct {
+			Token string `json:"token"`
+		} `json:"header"`
+	}
+	_ = json.Unmarshal(body, &verifyReq)
+
+	if fb.config.VerificationToken != "" {
+		h := r.Header.Get("X-Feishu-Token")
+		if h != fb.config.VerificationToken && verifyReq.Token != fb.config.VerificationToken && verifyReq.Header.Token != fb.config.VerificationToken {
+			http.Error(w, "Invalid verification token", http.StatusUnauthorized)
+			return
+		}
+	}
+
+	if verifyReq.Type == "url_verification" && strings.TrimSpace(verifyReq.Challenge) != "" {
+		fb.handleURLVerification(verifyReq.Challenge, w)
+		return
+	}
+
 	var event FeishuMessageEvent
-	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+	if err := json.Unmarshal(body, &event); err != nil {
 		http.Error(w, "Invalid JSON format", http.StatusBadRequest)
 		return
 	}
 
-	// 处理不同类型的事件
 	switch event.Header.EventType {
 	case "im.message.receive_v1":
 		fb.handleMessageReceive(event, w)
-	case "url_verification":
-		fb.handleURLVerification(event, w)
 	default:
 		fb.handleOtherEvent(event, w)
 	}
 }
 
-func (fb *FeishuBot) verifyRequest(r *http.Request) bool {
-	// 简单的token验证（实际应该使用更安全的验证方式）
-	token := r.Header.Get("X-Feishu-Token")
-	return token == fb.config.VerificationToken || fb.config.VerificationToken == ""
-}
-
 func (fb *FeishuBot) handleMessageReceive(event FeishuMessageEvent, w http.ResponseWriter) {
 	// 获取消息内容
 	message := event.Event.Message
-	userID := event.Event.Sender.SenderID.UserID
+	userID := strings.TrimSpace(event.Event.Sender.SenderID.UserID)
+	if userID == "" {
+		userID = strings.TrimSpace(event.Event.Sender.SenderID.OpenID)
+	}
+	if userID == "" {
+		userID = strings.TrimSpace(event.Event.Sender.SenderID.UnionID)
+	}
+	if userID == "" {
+		http.Error(w, "Missing sender id", http.StatusBadRequest)
+		return
+	}
+
+	if strings.ToLower(strings.TrimSpace(message.MessageType)) != "text" {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(FeishuAPIResponse{Code: 0, Msg: "ignored"})
+		return
+	}
 
 	// 解析文本内容
 	var textContent FeishuTextContent
@@ -265,71 +340,41 @@ func (fb *FeishuBot) handleMessageReceive(event FeishuMessageEvent, w http.Respo
 		http.Error(w, "Invalid message content", http.StatusBadRequest)
 		return
 	}
+	textContent.Text = strings.TrimSpace(textContent.Text)
+	if textContent.Text == "" {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(FeishuAPIResponse{Code: 0, Msg: "empty"})
+		return
+	}
 
 	// 处理消息（使用限流器）
 	select {
 	case fb.sem <- struct{}{}:
-		defer func() { <-fb.sem }()
-		
-		response, err := fb.processMessage(userID, textContent.Text, message.MessageID)
-		if err != nil {
-			log.Printf("Failed to process message: %v", err)
-			http.Error(w, "Message processing failed", http.StatusInternalServerError)
-			return
-		}
-
-		// 发送回复
-		if err := fb.sendReply(message.ChatID, message.MessageID, response); err != nil {
-			log.Printf("Failed to send reply: %v", err)
-		}
+		go func() {
+			defer func() { <-fb.sem }()
+			response, err := fb.processMessage(userID, textContent.Text, message.MessageID)
+			if err != nil {
+				log.Printf("Failed to process message: %v", err)
+				return
+			}
+			if err := fb.sendReply(message.ChatID, message.MessageID, response); err != nil {
+				log.Printf("Failed to send reply: %v", err)
+				return
+			}
+		}()
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(FeishuAPIResponse{Code: 0, Msg: "success"})
-	
+		_ = json.NewEncoder(w).Encode(FeishuAPIResponse{Code: 0, Msg: "success"})
+
 	default:
 		http.Error(w, "Too many concurrent requests", http.StatusTooManyRequests)
 	}
 }
 
-func (fb *FeishuBot) handleURLVerification(event FeishuMessageEvent, w http.ResponseWriter) {
-	// 飞书URL验证处理
+func (fb *FeishuBot) handleURLVerification(challenge string, w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
-	
-	// 飞书URL验证需要返回特定的JSON格式
-	// 直接从请求体中解析challenge字段
-	var requestData struct {
-		Type      string `json:"type"`
-		Challenge string `json:"challenge"`
-	}
-	
-	// 读取请求体
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		log.Printf("Failed to read request body: %v", err)
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	
-	// 解析JSON
-	if err := json.Unmarshal(body, &requestData); err != nil {
-		log.Printf("Failed to parse JSON: %v", err)
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	
-	// 返回飞书要求的验证格式
-	if requestData.Type == "url_verification" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"challenge": requestData.Challenge,
-		})
-		return
-	}
-	
-	// 对于其他类型的事件，返回通用响应
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"code": 0,
-		"msg": "Event received",
-		"data": nil,
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"challenge": challenge,
 	})
 }
 
@@ -342,7 +387,7 @@ func (fb *FeishuBot) handleOtherEvent(event FeishuMessageEvent, w http.ResponseW
 func (fb *FeishuBot) processMessage(userID, text, messageID string) (string, error) {
 	// 获取用户会话
 	session := fb.getUserSession(userID)
-	
+
 	// 处理特殊命令
 	if strings.HasPrefix(text, "/") {
 		return fb.handleCommand(userID, text, session)
@@ -363,12 +408,12 @@ func (fb *FeishuBot) getUserSession(userID string) *feishuUserSession {
 	// 创建新会话
 	sessionManager := NewSessionManager(fb.workspace, fb.healthMonitor)
 	client := NewLLMClient(fb.cfg, fb.workspace, fb.systemPrompt, sessionManager)
-	
+
 	newSession := &feishuUserSession{
 		sessionManager: sessionManager,
 		client:         client,
 	}
-	
+
 	fb.sessions[userID] = newSession
 	return newSession
 }
@@ -400,9 +445,48 @@ func (fb *FeishuBot) handleLLMMessage(userID, text string, session *feishuUserSe
 }
 
 func (fb *FeishuBot) sendReply(chatID, messageID, content string) error {
-	// 实现飞书消息发送逻辑
-	// 这里需要调用飞书API发送消息
-	log.Printf("Sending reply to chat %s: %s", chatID, content)
+	c := strings.ReplaceAll(strings.ReplaceAll(content, "\r\n", "\n"), "\r", "\n")
+	c = strings.TrimSpace(c)
+	if len(c) > 500 {
+		c = c[:500]
+	}
+	log.Printf("Sending reply to chat %s message %s: %s", chatID, messageID, c)
+	if strings.TrimSpace(fb.config.WebhookURL) == "" {
+		return nil
+	}
+
+	payload := map[string]any{
+		"msg_type": "text",
+		"content": map[string]any{
+			"text": c,
+		},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, strings.TrimSpace(fb.config.WebhookURL), bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: fb.config.Timeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
+		msg := strings.TrimSpace(string(b))
+		if msg == "" {
+			msg = resp.Status
+		}
+		return fmt.Errorf("feishu webhook reply failed: %s", msg)
+	}
 	return nil
 }
 
@@ -416,15 +500,14 @@ func (fb *FeishuBot) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 func (fb *FeishuBot) Stop() {
+	if fb.cancel != nil {
+		fb.cancel()
+	}
 	if fb.httpServer != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		fb.httpServer.Shutdown(ctx)
 	}
-	
-	if fb.cancel != nil {
-		fb.cancel()
-	}
-	
+
 	log.Println("Feishu bot stopped")
 }

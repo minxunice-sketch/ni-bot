@@ -332,7 +332,7 @@ func toolFSWrite(ctx ExecContext, argsRaw string) (string, error) {
 	absWorkspace, _ := filepath.Abs(ctx.Workspace)
 	relPath := normalizeWorkspacePath(a.Path, absWorkspace)
 	abs := filepath.Join(absWorkspace, relPath)
-	
+
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return "", err
 	}
@@ -372,22 +372,22 @@ func isAllowedWritePath(p string) bool {
 	if p == "" {
 		return false
 	}
-	
+
 	// 可信目录白名单
 	trustedDirs := []string{
 		"memory/",
-		"skills/", 
+		"skills/",
 		"logs/",
 		"workspace/",
 		"data/",
 	}
-	
+
 	for _, dir := range trustedDirs {
 		if strings.HasPrefix(p, dir) {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -395,16 +395,16 @@ func isAllowedWritePath(p string) bool {
 func normalizeWorkspacePath(path, absWorkspace string) string {
 	path = filepath.ToSlash(strings.TrimSpace(path))
 	absWorkspaceSlash := filepath.ToSlash(absWorkspace) + "/"
-	
+
 	// 如果路径包含绝对workspace路径，去除重复部分
 	if strings.HasPrefix(path, absWorkspaceSlash) {
 		path = strings.TrimPrefix(path, absWorkspaceSlash)
 	}
-	
+
 	// 去除重复的workspace前缀
 	path = strings.TrimPrefix(path, "workspace/")
 	path = strings.TrimPrefix(path, "workspace\\")
-	
+
 	return path
 }
 
@@ -648,6 +648,12 @@ func toolInstallSkill(ctx ExecContext, argsRaw string) (string, error) {
 	a.Layer = strings.ToLower(strings.TrimSpace(a.Layer))
 	if a.Layer == "" {
 		a.Layer = "upstream"
+	}
+	if a.Layer == "overrides" {
+		a.Layer = "override"
+	}
+	if a.Layer != "upstream" && a.Layer != "override" && a.Layer != "local" {
+		return "", fmt.Errorf("install_skill requires layer to be one of: upstream, overrides, local")
 	}
 	if a.Name == "" {
 		return "", fmt.Errorf("install_skill requires name")

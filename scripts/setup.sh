@@ -151,8 +151,6 @@ fi
 
 # 设置环境变量
 export GOPROXY=https://goproxy.cn,direct
-export NIBOT_ENABLE_EXEC=1
-export NIBOT_AUTO_APPROVE=true
 
 # 显示配置信息
 echo "🔧 环境配置:"
@@ -203,8 +201,6 @@ fi
 
 # 设置环境变量
 export GOPROXY=https://goproxy.cn,direct
-export NIBOT_ENABLE_EXEC=1
-export NIBOT_AUTO_APPROVE=true
 
 # 显示配置信息
 echo "🔧 环境配置:"
@@ -251,8 +247,6 @@ if (-not (Get-Command "go" -ErrorAction SilentlyContinue)) {
 
 # 设置环境变量
 $env:GOPROXY = "https://goproxy.cn,direct"
-$env:NIBOT_ENABLE_EXEC = "1"
-$env:NIBOT_AUTO_APPROVE = "true"
 
 # 显示配置信息
 Write-Host "🔧 环境配置:" -ForegroundColor Cyan

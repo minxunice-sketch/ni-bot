@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -25,14 +26,34 @@ func ConstructSystemPrompt(workspace string) (string, error) {
 	sb.WriteString("=== MEMORY ===\n")
 	memoryFiles, _ := listMarkdownFiles(memoryDir)
 	memoryFiles = reorderMemoryFiles(memoryFiles)
-	for _, name := range memoryFiles {
+	maxFiles := promptMaxMemoryFiles()
+	maxBytes := promptMaxMemoryBytes()
+	maxFileBytes := promptMaxMemoryFileBytes()
+	totalBytes := 0
+	for i, name := range memoryFiles {
+		if maxFiles > 0 && i >= maxFiles {
+			break
+		}
 		content, err := os.ReadFile(filepath.Join(memoryDir, name))
 		if err != nil {
 			continue
 		}
+		if maxFileBytes > 0 && len(content) > maxFileBytes {
+			content = append(content[:maxFileBytes], []byte("\n[TRUNCATED]\n")...)
+		}
+		if maxBytes > 0 && totalBytes+len(content) > maxBytes {
+			remain := maxBytes - totalBytes
+			if remain <= 0 {
+				break
+			}
+			if remain < len(content) {
+				content = append(content[:remain], []byte("\n[TRUNCATED]\n")...)
+			}
+		}
 		sb.WriteString(fmt.Sprintf("--- %s ---\n", name))
 		sb.Write(content)
 		sb.WriteString("\n\n")
+		totalBytes += len(content)
 	}
 
 	skills, err := DiscoverSkills(workspace)
@@ -78,6 +99,42 @@ func ConstructSystemPrompt(workspace string) (string, error) {
 	sb.WriteString("- Never write secrets (API keys, tokens, passwords) to files.\n")
 
 	return sb.String(), nil
+}
+
+func promptMaxMemoryFiles() int {
+	v := strings.TrimSpace(os.Getenv("NIBOT_PROMPT_MAX_MEMORY_FILES"))
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
+}
+
+func promptMaxMemoryBytes() int {
+	v := strings.TrimSpace(os.Getenv("NIBOT_PROMPT_MAX_MEMORY_BYTES"))
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
+}
+
+func promptMaxMemoryFileBytes() int {
+	v := strings.TrimSpace(os.Getenv("NIBOT_PROMPT_MAX_MEMORY_FILE_BYTES"))
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
 }
 
 func loadSkillDocs(dir string) ([]string, error) {

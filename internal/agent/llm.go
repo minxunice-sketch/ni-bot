@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,14 +19,14 @@ import (
 )
 
 type LLMClient struct {
-	mu              sync.RWMutex
-	Config          Config
-	History         []Message
-	SystemMsg       string
-	Workspace       string
-	SessionManager  *SessionManager
-	MaxToolIters    int
-	LastSummary     string
+	mu               sync.RWMutex
+	Config           Config
+	History          []Message
+	SystemMsg        string
+	Workspace        string
+	SessionManager   *SessionManager
+	MaxToolIters     int
+	LastSummary      string
 	LastSummaryTitle string
 }
 
@@ -43,14 +45,14 @@ type Message struct {
 }
 
 type openAIRequest struct {
-	Model      string      `json:"model"`
+	Model      string       `json:"model"`
 	Messages   []Message    `json:"messages"`
 	Tools      []openAITool `json:"tools,omitempty"`
-	ToolChoice any         `json:"tool_choice,omitempty"`
+	ToolChoice any          `json:"tool_choice,omitempty"`
 }
 
 type openAITool struct {
-	Type     string           `json:"type"`
+	Type     string            `json:"type"`
 	Function openAIFunctionDef `json:"function"`
 }
 
@@ -67,7 +69,7 @@ type openAIMessage struct {
 }
 
 type openAIToolCall struct {
-	Type     string           `json:"type"`
+	Type     string             `json:"type"`
 	Function openAIFunctionCall `json:"function"`
 }
 
@@ -103,9 +105,6 @@ func (c *LLMClient) Chat(userInput string) (string, error) {
 	systemMsg := c.SystemMsg
 	c.mu.RUnlock()
 
-	messages := []Message{{Role: "system", Content: systemMsg}}
-	messages = append(messages, c.History...)
-
 	var responseContent string
 	var err error
 
@@ -118,6 +117,12 @@ func (c *LLMClient) Chat(userInput string) (string, error) {
 		c.History = append(c.History, Message{Role: "assistant", Content: redactSecrets(responseContent)})
 		return responseContent, nil
 	}
+
+	messages := []Message{{Role: "system", Content: systemMsg}}
+	if auto := buildAutoRecallBlock(c.Workspace, userInput); strings.TrimSpace(auto) != "" {
+		messages = append(messages, Message{Role: "system", Content: auto})
+	}
+	messages = append(messages, c.History...)
 
 	switch provider {
 	case "openai", "deepseek", "nvidia", "nvidia_nim":
@@ -134,6 +139,170 @@ func (c *LLMClient) Chat(userInput string) (string, error) {
 
 	c.History = append(c.History, Message{Role: "assistant", Content: redactSecrets(responseContent)})
 	return responseContent, nil
+}
+
+func buildAutoRecallBlock(workspace string, userInput string) string {
+	if !autoRecallEnabled() {
+		return ""
+	}
+	in := strings.TrimSpace(userInput)
+	if in == "" {
+		return ""
+	}
+	if strings.HasPrefix(in, "TOOL_RESULTS:") {
+		return ""
+	}
+
+	s, err := OpenSQLiteStore(workspace)
+	if err != nil || s == nil {
+		return ""
+	}
+	defer s.Close()
+
+	scope := strings.TrimSpace(os.Getenv("NIBOT_AUTO_RECALL_SCOPE"))
+	if scope == "" {
+		scope = "global"
+	}
+
+	limit := autoRecallLimit()
+	maxBytes := autoRecallMaxBytes()
+	terms := extractRecallTerms(redactSecrets(in), 3)
+	if len(terms) == 0 {
+		return ""
+	}
+
+	byID := map[int64]MemoryItem{}
+	perTerm := 5
+	if limit > 0 && limit < perTerm {
+		perTerm = limit
+	}
+	for _, term := range terms {
+		items, err := s.SearchMemories(scope, term, perTerm)
+		if err != nil {
+			continue
+		}
+		for _, it := range items {
+			byID[it.ID] = it
+		}
+	}
+	if len(byID) == 0 {
+		return ""
+	}
+
+	var merged []MemoryItem
+	for _, it := range byID {
+		merged = append(merged, it)
+	}
+	sort.Slice(merged, func(i, j int) bool { return merged[i].ID > merged[j].ID })
+	if limit > 0 && len(merged) > limit {
+		merged = merged[:limit]
+	}
+
+	var sb strings.Builder
+	sb.WriteString("=== RELEVANT MEMORIES ===\n")
+	for _, it := range merged {
+		line := fmt.Sprintf("- id=%d scope=%s tags=%s: %s\n", it.ID, it.Scope, it.Tags, previewText(redactSecrets(it.Content), 240))
+		if maxBytes > 0 && sb.Len()+len([]byte(line)) > maxBytes {
+			break
+		}
+		sb.WriteString(line)
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+func autoRecallEnabled() bool {
+	v := strings.TrimSpace(os.Getenv("NIBOT_AUTO_RECALL"))
+	if v == "" {
+		return true
+	}
+	v = strings.ToLower(v)
+	return v == "1" || v == "true" || v == "yes" || v == "on"
+}
+
+func autoRecallLimit() int {
+	v := strings.TrimSpace(os.Getenv("NIBOT_AUTO_RECALL_LIMIT"))
+	if v == "" {
+		return 6
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return 6
+	}
+	if n > 20 {
+		n = 20
+	}
+	return n
+}
+
+func autoRecallMaxBytes() int {
+	v := strings.TrimSpace(os.Getenv("NIBOT_AUTO_RECALL_MAX_BYTES"))
+	if v == "" {
+		return 1200
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return 1200
+	}
+	if n < 200 {
+		n = 200
+	}
+	if n > 8000 {
+		n = 8000
+	}
+	return n
+}
+
+func extractRecallTerms(s string, maxTerms int) []string {
+	if maxTerms <= 0 {
+		return nil
+	}
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+
+	var tokens []string
+	var b strings.Builder
+	flush := func() {
+		if b.Len() == 0 {
+			return
+		}
+		t := strings.TrimSpace(b.String())
+		b.Reset()
+		if len([]rune(t)) < 2 {
+			return
+		}
+		tokens = append(tokens, t)
+	}
+
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) {
+			b.WriteRune(r)
+			continue
+		}
+		flush()
+	}
+	flush()
+
+	if len(tokens) == 0 {
+		return nil
+	}
+
+	seen := map[string]struct{}{}
+	var uniq []string
+	for _, t := range tokens {
+		low := strings.ToLower(t)
+		if _, ok := seen[low]; ok {
+			continue
+		}
+		seen[low] = struct{}{}
+		uniq = append(uniq, t)
+	}
+	sort.Slice(uniq, func(i, j int) bool { return len([]rune(uniq[i])) > len([]rune(uniq[j])) })
+	if len(uniq) > maxTerms {
+		uniq = uniq[:maxTerms]
+	}
+	return uniq
 }
 
 func (c *LLMClient) mockRespond(userInput string) string {
@@ -589,7 +758,7 @@ func (c *LLMClient) Loop(inputReader io.Reader, outputWriter io.Writer, logger *
 	stopAutoReload := c.StartAutoReload(logger)
 	defer stopAutoReload()
 	defer c.persistSessionOnExit()
-	
+
 	v := strings.TrimSpace(os.Getenv("NIBOT_VERSION"))
 	if v == "" {
 		v = "dev"
@@ -856,6 +1025,7 @@ func (c *LLMClient) Loop(inputReader io.Reader, outputWriter io.Writer, logger *
 		case "help", "/help", "?":
 			fmt.Fprintln(outputWriter, "\nCommands:")
 			fmt.Fprintln(outputWriter, "- help / /help / ?: show this help")
+			fmt.Fprintln(outputWriter, "- version / /version: print version")
 			fmt.Fprintln(outputWriter, "- skills / /skills: list skills")
 			fmt.Fprintln(outputWriter, "- skills show <name>: show skill docs and scripts")
 			fmt.Fprintln(outputWriter, "- skills search <kw>: search skills by keyword")
@@ -863,6 +1033,7 @@ func (c *LLMClient) Loop(inputReader io.Reader, outputWriter io.Writer, logger *
 			fmt.Fprintln(outputWriter, "- skills doctor: validate installed skills")
 			fmt.Fprintln(outputWriter, "- skills test <name>: test a skill without executing")
 			fmt.Fprintln(outputWriter, "- reload / /reload: reload system prompt (skills/memory)")
+			fmt.Fprintln(outputWriter, "- update / /update: git pull + go mod tidy + go build (use: update --yes)")
 			fmt.Fprintln(outputWriter, "- clear / /clear: clear the screen")
 			fmt.Fprintln(outputWriter, "- reset / /reset: clear conversation memory (history)")
 			fmt.Fprintln(outputWriter, "- exit / quit: exit Ni bot")
@@ -959,16 +1130,16 @@ func (c *LLMClient) persistSessionOnExit() {
 	if c.SessionManager != nil {
 		if session := c.SessionManager.GetCurrentSession(); session != nil {
 			// Add final memory item about session completion
-			c.SessionManager.AddToMemory(fmt.Sprintf("Session completed with %d messages, %d tool calls", 
+			c.SessionManager.AddToMemory(fmt.Sprintf("Session completed with %d messages, %d tool calls",
 				session.MessageCount, session.ToolCalls))
-			
+
 			// Persist the final session state
 			if err := c.SessionManager.PersistSession(session); err != nil {
 				log.Printf("Failed to persist session state on exit: %v", err)
 			} else {
 				log.Printf("Session state persisted successfully: %s", session.SessionID)
 			}
-			
+
 			// Notify health monitor about session ending
 			c.SessionManager.SessionEnded()
 		}
@@ -982,9 +1153,9 @@ func writeLog(f *os.File, content string) {
 }
 
 type cliApprover struct {
-	scanner *bufio.Scanner
-	out     io.Writer
-	logger  *os.File
+	scanner  *bufio.Scanner
+	out      io.Writer
+	logger   *os.File
 	logLevel string
 }
 

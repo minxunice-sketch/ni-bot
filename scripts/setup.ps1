@@ -167,8 +167,6 @@ if (-not (Get-Command "go" -ErrorAction SilentlyContinue)) {
 
 # Set environment variables
 `$env:GOPROXY = "https://goproxy.cn,direct"
-`$env:NIBOT_ENABLE_EXEC = "1"
-`$env:NIBOT_AUTO_APPROVE = "true"
 
 # Display configuration info
 Write-Host "🔧 Environment Configuration:" -ForegroundColor Cyan
@@ -219,8 +217,6 @@ fi
 
 # Set environment variables
 export GOPROXY=https://goproxy.cn,direct
-export NIBOT_ENABLE_EXEC=1
-export NIBOT_AUTO_APPROVE=true
 
 # Display configuration info
 echo "🔧 Environment Configuration:"
