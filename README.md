@@ -329,6 +329,7 @@ Ni bot 支持完整的会话持久化功能：
 - `memory.forget`：按 id 删除
 - `memory.list`：列出最近记录
 - `memory.stats`：统计信息
+- `memory.import`：从粘贴的“记忆导出文本块”批量导入（自动脱敏 + 去重/合并）
 
 #### 自动召回注入（Auto-Recall）
 启用 SQLite 记忆库后，Ni bot 会在每次请求模型前自动检索并注入“可能相关的记忆条目”，避免把全部 `workspace/memory/*.md` 全量塞进 prompt。
@@ -338,6 +339,15 @@ Ni bot 支持完整的会话持久化功能：
 - `NIBOT_AUTO_RECALL_SCOPE`：检索 scope（默认 `global`）
 - `NIBOT_AUTO_RECALL_LIMIT`：最多注入条目数（默认 6，最大 20）
 - `NIBOT_AUTO_RECALL_MAX_BYTES`：注入区块最大字节数（默认 1200）
+
+#### 自动记忆提取（Auto Memory Extraction）
+可选：每轮对话结束后，Ni bot 会自动生成候选“长期记忆条目”，并走与工具调用一致的审批流程写入 SQLite 记忆库。
+
+可选环境变量：
+- `NIBOT_AUTO_MEMORY`：是否启用（默认关闭；设为 `1`/`true` 开启）
+- `NIBOT_AUTO_MEMORY_SCOPE`：写入 scope（默认 `global`）
+- `NIBOT_AUTO_MEMORY_TAGS`：写入 tags（默认 `auto`）
+- `NIBOT_AUTO_MEMORY_MAX_ITEMS`：每轮最多写入条目数（默认 6，最大 20）
 
 ### 健康监控
 
@@ -502,6 +512,7 @@ Ni bot 在发现/展示技能时，会自动读取以下任一元数据文件（
 - `skills doctor`：检查已安装技能是否可执行
 - `skills test <name>`：对某个技能做非执行检查（脚本存在性/OS 兼容性/大小限制等）
 - `reload` / `/reload`：重新加载 system prompt（读取最新 skills/memory，无需重启）
+- `spec` / `/spec`：Spec 模式开关与状态（需求会先生成 spec/tasks/checklist，确认后再实施）
 - `update` / `/update`：平滑更新（执行 git pull + go mod tidy + go build，保留 workspace 数据）
 - `clear` / `/clear`：清屏（打印多行空行）
 - `reset` / `/reset`：清空会话 history（不删除文件）

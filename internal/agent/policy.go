@@ -113,7 +113,7 @@ func (p ToolPolicy) AllowsTool(tool string) bool {
 		return p.AllowSkillExec
 	case "skills.install", "install_skill", "skill_store_install":
 		return p.AllowSkillInstall
-	case "memory.store", "memory.recall", "memory.forget", "memory.list", "memory.stats":
+	case "memory.store", "memory.recall", "memory.forget", "memory.list", "memory.stats", "memory.import":
 		return p.AllowMemory
 	default:
 		return true
@@ -130,7 +130,7 @@ func (p ToolPolicy) RequiresApproval(tool string) bool {
 		return p.RequireSkillExec
 	case "skills.install", "install_skill", "skill_store_install":
 		return p.RequireSkillInstall
-	case "memory.store", "memory.recall", "memory.forget", "memory.list", "memory.stats":
+	case "memory.store", "memory.recall", "memory.forget", "memory.list", "memory.stats", "memory.import":
 		return p.RequireMemory
 	default:
 		return false

@@ -203,6 +203,12 @@ func executeOne(ctx ExecContext, call ExecCall) ToolResult {
 			return ToolResult{Tool: call.Tool, OK: false, Error: err.Error(), Output: out}
 		}
 		return ToolResult{Tool: call.Tool, OK: true, Output: out}
+	case "memory.import":
+		out, err := toolMemoryImport(ctx, call.ArgsRaw)
+		if err != nil {
+			return ToolResult{Tool: call.Tool, OK: false, Error: err.Error(), Output: out}
+		}
+		return ToolResult{Tool: call.Tool, OK: true, Output: out}
 	case "skills.install", "install_skill", "skill_store_install":
 		out, err := toolInstallSkill(ctx, call.ArgsRaw)
 		if err != nil {
@@ -729,6 +735,186 @@ func toolMemoryStore(ctx ExecContext, argsRaw string) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("stored memory id=%d scope=%s", id, a.Scope), nil
+}
+
+type memoryImportArgs struct {
+	Scope  string `json:"scope"`
+	Tags   string `json:"tags"`
+	Source string `json:"source"`
+	Text   string `json:"text"`
+	Limit  int    `json:"limit"`
+}
+
+func toolMemoryImport(ctx ExecContext, argsRaw string) (string, error) {
+	if !strings.HasPrefix(strings.TrimSpace(argsRaw), "{") {
+		return "", fmt.Errorf("memory.import requires JSON args: {\"source\":\"chatgpt\",\"scope\":\"global\",\"tags\":\"...\",\"text\":\"...\",\"limit\":50}")
+	}
+	var a memoryImportArgs
+	if err := json.Unmarshal([]byte(argsRaw), &a); err != nil {
+		return "", fmt.Errorf("invalid JSON args for memory.import: %w", err)
+	}
+	a.Scope = stringsTrimSpace(a.Scope)
+	if a.Scope == "" {
+		a.Scope = "global"
+	}
+	a.Tags = stringsTrimSpace(a.Tags)
+	a.Source = stringsTrimSpace(a.Source)
+	if a.Source == "" {
+		a.Source = "import"
+	}
+	a.Text = stringsTrimSpace(a.Text)
+	if a.Text == "" {
+		return "", fmt.Errorf("memory.import requires text")
+	}
+	if a.Limit <= 0 || a.Limit > 200 {
+		a.Limit = 50
+	}
+
+	items := parseImportedMemories(a.Text, a.Limit)
+	if len(items) == 0 {
+		return "(no importable items)", nil
+	}
+
+	s, err := OpenSQLiteStore(ctx.Workspace)
+	if err != nil {
+		return "", err
+	}
+	if s == nil {
+		return "", fmt.Errorf("memory db disabled (set NIBOT_MEMORY_DB=sqlite or NIBOT_STORAGE=sqlite)")
+	}
+	defer s.Close()
+
+	var inserted, updated, unchanged int
+	var samples []string
+	for _, it := range items {
+		it = redactSecrets(stringsTrimSpace(it))
+		if it == "" {
+			continue
+		}
+		_, act, err := s.UpsertMemory(a.Scope, a.Tags, it, a.Source)
+		if err != nil {
+			return "", err
+		}
+		switch act {
+		case "inserted":
+			inserted++
+		case "updated":
+			updated++
+		default:
+			unchanged++
+		}
+		if len(samples) < 5 {
+			samples = append(samples, previewText(it, 160))
+		}
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("imported scope=%s source=%s total=%d (inserted=%d updated=%d unchanged=%d)", a.Scope, a.Source, len(items), inserted, updated, unchanged))
+	if len(samples) > 0 {
+		sb.WriteString("\nexamples:\n")
+		for _, s := range samples {
+			sb.WriteString("- " + s + "\n")
+		}
+	}
+	return strings.TrimRight(sb.String(), "\n"), nil
+}
+
+func parseImportedMemories(text string, limit int) []string {
+	text = strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
+	lines := strings.Split(text, "\n")
+	seen := map[string]bool{}
+	var out []string
+
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "```") {
+			continue
+		}
+		line = stripBulletPrefix(line)
+		line = stripDatePrefix(line)
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		norm := strings.ToLower(strings.Join(strings.Fields(line), " "))
+		if seen[norm] {
+			continue
+		}
+		seen[norm] = true
+		out = append(out, line)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+func stripBulletPrefix(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+	bullets := []string{"- ", "* ", "• ", "· "}
+	for _, b := range bullets {
+		if strings.HasPrefix(s, b) {
+			return strings.TrimSpace(strings.TrimPrefix(s, b))
+		}
+	}
+	if len(s) >= 3 {
+		if s[0] >= '0' && s[0] <= '9' {
+			for i := 1; i < len(s) && i < 6; i++ {
+				ch := s[i]
+				if ch >= '0' && ch <= '9' {
+					continue
+				}
+				if ch == '.' || ch == ')' {
+					return strings.TrimSpace(s[i+1:])
+				}
+				break
+			}
+		}
+	}
+	return s
+}
+
+func stripDatePrefix(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+	if strings.HasPrefix(s, "[") {
+		if j := strings.Index(s, "]"); j > 1 && j+1 < len(s) {
+			rest := strings.TrimSpace(s[j+1:])
+			rest = strings.TrimLeft(rest, "-–— \t")
+			if rest != "" {
+				return rest
+			}
+		}
+	}
+	if len(s) >= 10 {
+		prefix := s[:10]
+		isDate := prefix[0] >= '0' && prefix[0] <= '9' &&
+			prefix[1] >= '0' && prefix[1] <= '9' &&
+			prefix[2] >= '0' && prefix[2] <= '9' &&
+			prefix[3] >= '0' && prefix[3] <= '9' &&
+			prefix[4] == '-' &&
+			prefix[5] >= '0' && prefix[5] <= '9' &&
+			prefix[6] >= '0' && prefix[6] <= '9' &&
+			prefix[7] == '-' &&
+			prefix[8] >= '0' && prefix[8] <= '9' &&
+			prefix[9] >= '0' && prefix[9] <= '9'
+		if isDate {
+			rest := strings.TrimSpace(s[10:])
+			rest = strings.TrimLeft(rest, "-–— \t")
+			if rest != "" {
+				return rest
+			}
+		}
+	}
+	return s
 }
 
 type memoryRecallArgs struct {

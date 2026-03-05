@@ -28,6 +28,9 @@ type LLMClient struct {
 	MaxToolIters     int
 	LastSummary      string
 	LastSummaryTitle string
+	SpecMode         bool
+	pendingSpecSlug  string
+	pendingSpecInput string
 }
 
 type Config struct {
@@ -95,6 +98,7 @@ func NewLLMClient(cfg Config, workspace string, systemPrompt string, sessionMana
 		SessionManager: sessionManager,
 		History:        []Message{},
 		MaxToolIters:   5,
+		SpecMode:       loadSpecModeSetting(workspace),
 	}
 }
 
@@ -138,6 +142,40 @@ func (c *LLMClient) Chat(userInput string) (string, error) {
 	}
 
 	c.History = append(c.History, Message{Role: "assistant", Content: redactSecrets(responseContent)})
+	return responseContent, nil
+}
+
+func (c *LLMClient) Call(messages []Message) (string, error) {
+	var responseContent string
+	var err error
+
+	provider := strings.ToLower(strings.TrimSpace(c.Config.Provider))
+	if provider == "" {
+		provider = "openai"
+	}
+	if provider != "ollama" && strings.TrimSpace(c.Config.APIKey) == "" {
+		last := ""
+		if len(messages) > 0 {
+			last = messages[len(messages)-1].Content
+		}
+		return c.mockRespond(last), nil
+	}
+
+	switch provider {
+	case "openai", "deepseek", "nvidia", "nvidia_nim":
+		responseContent, err = c.callOpenAICompatible(messages)
+	case "ollama":
+		responseContent, err = c.callOllama(messages)
+	default:
+		last := ""
+		if len(messages) > 0 {
+			last = messages[len(messages)-1].Content
+		}
+		responseContent = fmt.Sprintf("[MOCK] Received: %s", last)
+	}
+	if err != nil {
+		return "", err
+	}
 	return responseContent, nil
 }
 
@@ -707,6 +745,26 @@ func (c *LLMClient) openAIToolsForPolicy() []openAITool {
 			},
 		})
 	}
+	if p.AllowsTool("memory.import") {
+		tools = append(tools, openAITool{
+			Type: "function",
+			Function: openAIFunctionDef{
+				Name:        "memory.import",
+				Description: "Import memory items from a pasted text block (SQLite memory DB must be enabled)",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"source": map[string]any{"type": "string"},
+						"scope":  map[string]any{"type": "string"},
+						"tags":   map[string]any{"type": "string"},
+						"text":   map[string]any{"type": "string"},
+						"limit":  map[string]any{"type": "integer"},
+					},
+					"required": []string{"text"},
+				},
+			},
+		})
+	}
 
 	if p.AllowsTool("shell_exec") {
 		tools = append(tools, openAITool{
@@ -768,6 +826,13 @@ func (c *LLMClient) Loop(inputReader io.Reader, outputWriter io.Writer, logger *
 
 	for scanner.Scan() {
 		input := strings.TrimSpace(scanner.Text())
+		if c.SpecMode && strings.TrimSpace(c.pendingSpecSlug) != "" && isSpecConfirmInput(input) {
+			slug := strings.TrimSpace(c.pendingSpecSlug)
+			req := strings.TrimSpace(c.pendingSpecInput)
+			c.pendingSpecSlug = ""
+			c.pendingSpecInput = ""
+			input = fmt.Sprintf("用户已确认Spec，开始实施。\n\n需求：%s\n\n请先读取并遵循以下文件：\n- workspace/specs/%s/spec.md\n- workspace/specs/%s/tasks.md\n- workspace/specs/%s/checklist.md\n\n要求：先按 tasks.md 逐项执行，必要时调用工具；所有写入/执行仍需遵循 policy + 审批。", req, slug, slug, slug)
+		}
 		tokens := splitCommandLine(input)
 		if len(tokens) == 0 {
 			fmt.Fprint(outputWriter, "> ")
@@ -826,6 +891,55 @@ func (c *LLMClient) Loop(inputReader io.Reader, outputWriter io.Writer, logger *
 				writeLog(logger, fmt.Sprintf("\n## System Prompt Reloaded\n\n(prompt_bytes=%d)\n\n---\n", len([]byte(systemPrompt))))
 			} else {
 				writeLog(logger, "\n## System Prompt Reloaded\n\n```\n"+RedactForLog(systemPrompt)+"\n```\n\n---\n")
+			}
+			fmt.Fprint(outputWriter, "\n> ")
+			continue
+		case "spec", "/spec":
+			sub := "status"
+			if len(tokens) >= 2 {
+				sub = strings.ToLower(strings.TrimSpace(tokens[1]))
+			}
+			switch sub {
+			case "on", "enable":
+				c.SpecMode = true
+				if hasToken(tokens, "--persist") {
+					_ = saveSpecModeSetting(c.Workspace, true)
+				}
+				fmt.Fprintln(outputWriter, "\nSpec 模式：ON")
+			case "off", "disable":
+				c.SpecMode = false
+				c.pendingSpecSlug = ""
+				c.pendingSpecInput = ""
+				if hasToken(tokens, "--persist") {
+					_ = saveSpecModeSetting(c.Workspace, false)
+				}
+				fmt.Fprintln(outputWriter, "\nSpec 模式：OFF")
+			case "persist":
+				val := ""
+				if len(tokens) >= 3 {
+					val = strings.ToLower(strings.TrimSpace(tokens[2]))
+				}
+				if val == "on" || val == "true" || val == "1" || val == "yes" {
+					_ = saveSpecModeSetting(c.Workspace, true)
+					fmt.Fprintln(outputWriter, "\n已持久化：Spec 模式默认 ON")
+				} else if val == "off" || val == "false" || val == "0" || val == "no" {
+					_ = saveSpecModeSetting(c.Workspace, false)
+					fmt.Fprintln(outputWriter, "\n已持久化：Spec 模式默认 OFF")
+				} else {
+					fmt.Fprintln(outputWriter, "\n用法：spec persist on|off")
+				}
+			case "status":
+				persisted := loadSpecModeSetting(c.Workspace)
+				fmt.Fprintf(outputWriter, "\nSpec 模式：%v（持久化默认：%v）\n", c.SpecMode, persisted)
+				if strings.TrimSpace(c.pendingSpecSlug) != "" {
+					fmt.Fprintf(outputWriter, "待确认Spec：workspace/specs/%s/\n", strings.TrimSpace(c.pendingSpecSlug))
+				}
+			default:
+				fmt.Fprintln(outputWriter, "\n用法：")
+				fmt.Fprintln(outputWriter, "- spec status")
+				fmt.Fprintln(outputWriter, "- spec on [--persist]")
+				fmt.Fprintln(outputWriter, "- spec off [--persist]")
+				fmt.Fprintln(outputWriter, "- spec persist on|off")
 			}
 			fmt.Fprint(outputWriter, "\n> ")
 			continue
@@ -1033,6 +1147,7 @@ func (c *LLMClient) Loop(inputReader io.Reader, outputWriter io.Writer, logger *
 			fmt.Fprintln(outputWriter, "- skills doctor: validate installed skills")
 			fmt.Fprintln(outputWriter, "- skills test <name>: test a skill without executing")
 			fmt.Fprintln(outputWriter, "- reload / /reload: reload system prompt (skills/memory)")
+			fmt.Fprintln(outputWriter, "- spec / /spec: spec mode (generate spec/tasks/checklist)")
 			fmt.Fprintln(outputWriter, "- update / /update: git pull + go mod tidy + go build (use: update --yes)")
 			fmt.Fprintln(outputWriter, "- clear / /clear: clear the screen")
 			fmt.Fprintln(outputWriter, "- reset / /reset: clear conversation memory (history)")
@@ -1055,6 +1170,21 @@ func (c *LLMClient) Loop(inputReader io.Reader, outputWriter io.Writer, logger *
 			continue
 		}
 
+		if c.SpecMode && strings.TrimSpace(c.pendingSpecSlug) == "" {
+			slug, err := c.generateSpecDocs(input)
+			if err != nil {
+				fmt.Fprintf(outputWriter, "\n生成 Spec 失败：%v\n", err)
+				fmt.Fprint(outputWriter, "\n> ")
+				continue
+			}
+			c.pendingSpecSlug = slug
+			c.pendingSpecInput = input
+			fmt.Fprintf(outputWriter, "\n已生成 Spec 文件：workspace/specs/%s/\n", slug)
+			fmt.Fprintln(outputWriter, "请回复：确认Spec，开始实施")
+			fmt.Fprint(outputWriter, "\n> ")
+			continue
+		}
+
 		writeLog(logger, fmt.Sprintf("\n### User:\n%s\n", redactSecrets(input)))
 		if c.SessionManager != nil {
 			c.SessionManager.RecordMessage("user", redactSecrets(input))
@@ -1067,6 +1197,7 @@ func (c *LLMClient) Loop(inputReader io.Reader, outputWriter io.Writer, logger *
 		}
 
 		nextUserInput := input
+		lastAssistant := ""
 		for iter := 0; iter < c.MaxToolIters; iter++ {
 			resp, err := c.Chat(nextUserInput)
 			if err != nil {
@@ -1074,6 +1205,7 @@ func (c *LLMClient) Loop(inputReader io.Reader, outputWriter io.Writer, logger *
 				writeLog(logger, fmt.Sprintf("\n**Error**: %v\n", err))
 				break
 			}
+			lastAssistant = resp
 
 			fmt.Fprintf(outputWriter, "\n%s\n", redactSecrets(resp))
 			writeLog(logger, fmt.Sprintf("\n### Ni bot:\n%s\n", redactSecrets(resp)))
@@ -1122,8 +1254,313 @@ func (c *LLMClient) Loop(inputReader io.Reader, outputWriter io.Writer, logger *
 			nextUserInput = toolSummaryForModel
 		}
 
+		_ = c.maybeAutoExtractMemory(input, lastAssistant, scanner, outputWriter, logger)
+
 		fmt.Fprint(outputWriter, "\n> ")
 	}
+}
+
+func (c *LLMClient) maybeAutoExtractMemory(userText, assistantText string, scanner *bufio.Scanner, outputWriter io.Writer, logger *os.File) error {
+	if !autoMemoryEnabled() {
+		return nil
+	}
+	userText = strings.TrimSpace(userText)
+	assistantText = strings.TrimSpace(assistantText)
+	if userText == "" || assistantText == "" {
+		return nil
+	}
+	s, err := OpenSQLiteStore(c.Workspace)
+	if err != nil || s == nil {
+		if s != nil {
+			s.Close()
+		}
+		return nil
+	}
+	s.Close()
+
+	scope := strings.TrimSpace(os.Getenv("NIBOT_AUTO_MEMORY_SCOPE"))
+	if scope == "" {
+		scope = "global"
+	}
+	baseTags := strings.TrimSpace(os.Getenv("NIBOT_AUTO_MEMORY_TAGS"))
+	if baseTags == "" {
+		baseTags = "auto"
+	}
+	maxItems := parseIntEnv("NIBOT_AUTO_MEMORY_MAX_ITEMS", 6, 1, 20)
+
+	type proposal struct {
+		Action  string `json:"action"`
+		Scope   string `json:"scope"`
+		Tags    string `json:"tags"`
+		Content string `json:"content"`
+	}
+	type proposalResp struct {
+		Items []proposal `json:"items"`
+	}
+
+	system := "你是一个严格的“长期记忆提取器”。只输出 JSON，不要输出其他任何文本。\n\n" +
+		"目标：从对话中提取“稳定且可复用”的信息（长期偏好、项目约束、工作流约定、长期事实）。\n" +
+		"禁止：密钥/token/账号、隐私（身份证/住址/手机号/银行卡）、一次性任务细节、可从上下文直接推断的内容。\n" +
+		"输出格式：{\"items\":[{\"action\":\"store\",\"scope\":\"global\",\"tags\":\"...\",\"content\":\"...\"}, ...]}。\n" +
+		fmt.Sprintf("限制：items 不超过 %d 条；content 必须是简短的一句话。", maxItems)
+
+	u := "USER:\n" + redactSecrets(userText) + "\n\nASSISTANT:\n" + redactSecrets(assistantText)
+	resp, err := c.Call([]Message{
+		{Role: "system", Content: system},
+		{Role: "user", Content: u},
+	})
+	if err != nil {
+		return nil
+	}
+	js := extractJSONBlock(resp)
+	var pr proposalResp
+	if err := json.Unmarshal([]byte(js), &pr); err != nil {
+		return nil
+	}
+	if len(pr.Items) == 0 {
+		return nil
+	}
+	if len(pr.Items) > maxItems {
+		pr.Items = pr.Items[:maxItems]
+	}
+
+	var calls []ExecCall
+	for _, it := range pr.Items {
+		action := strings.ToLower(strings.TrimSpace(it.Action))
+		if action == "" {
+			action = "store"
+		}
+		if action != "store" && action != "add" && action != "update" {
+			continue
+		}
+		content := strings.TrimSpace(it.Content)
+		if content == "" {
+			continue
+		}
+		tags := strings.TrimSpace(it.Tags)
+		if tags == "" {
+			tags = baseTags
+		} else {
+			tags = mergeTags(baseTags, tags)
+		}
+		sc := strings.TrimSpace(it.Scope)
+		if sc == "" {
+			sc = scope
+		}
+		args, _ := json.Marshal(map[string]any{
+			"scope":   sc,
+			"tags":    tags,
+			"content": content,
+		})
+		calls = append(calls, ExecCall{Tool: "memory.store", ArgsRaw: string(args)})
+	}
+	if len(calls) == 0 {
+		return nil
+	}
+
+	fmt.Fprintln(outputWriter, "\n[Auto Memory]")
+	fmt.Fprintf(outputWriter, "提取到 %d 条候选记忆，将逐条请求审批。\n", len(calls))
+	writeLog(logger, fmt.Sprintf("\n### Auto Memory Proposals (%d)\n", len(calls)))
+
+	approver := &cliApprover{scanner: scanner, out: outputWriter, logger: logger, logLevel: c.Config.LogLevel}
+	results := ExecuteCalls(ExecContext{Workspace: c.Workspace, Policy: c.Config.Policy}, calls, approver)
+
+	fullToolSummary := formatToolResults(results)
+	toolSummaryForModel := redactSecrets(fullToolSummary)
+	toolSummaryForLog := toolSummaryForModel
+	if normalizeLogLevel(c.Config.LogLevel) == "meta" {
+		toolSummaryForLog = redactSecrets(formatToolResultsMeta(results))
+	}
+
+	writeLog(logger, "\n### Auto Memory Results\n")
+	writeLog(logger, toolSummaryForLog+"\n")
+	writeAuditToolResults(logger, c.Config.LogLevel, calls, results)
+	fmt.Fprintln(outputWriter, "\n[Auto Memory Results]")
+	fmt.Fprintln(outputWriter, toolSummaryForModel)
+
+	if c.SessionManager != nil && len(calls) > 0 {
+		c.SessionManager.RecordMessage("tool_results", toolSummaryForModel)
+		c.SessionManager.RecordToolResults(calls, results)
+		for i := range calls {
+			c.SessionManager.IncrementToolCalls()
+			if i < len(results) && results[i].Error == "denied by user" {
+				c.SessionManager.IncrementDenials()
+				continue
+			}
+			if c.Config.Policy.RequiresApproval(calls[i].Tool) {
+				c.SessionManager.IncrementApprovals()
+			}
+		}
+	}
+
+	return nil
+}
+
+func autoMemoryEnabled() bool {
+	v := strings.TrimSpace(os.Getenv("NIBOT_AUTO_MEMORY"))
+	if v == "" {
+		return false
+	}
+	v = strings.ToLower(v)
+	return v == "1" || v == "true" || v == "yes" || v == "on"
+}
+
+func parseIntEnv(key string, def, min, max int) int {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return def
+	}
+	if n < min {
+		return min
+	}
+	if n > max {
+		return max
+	}
+	return n
+}
+
+func extractJSONBlock(s string) string {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "```") {
+		s = strings.TrimPrefix(s, "```")
+		s = strings.TrimPrefix(strings.TrimSpace(s), "json")
+		s = strings.TrimSpace(s)
+		if i := strings.LastIndex(s, "```"); i >= 0 {
+			s = strings.TrimSpace(s[:i])
+		}
+	}
+	return strings.TrimSpace(s)
+}
+
+func isSpecConfirmInput(input string) bool {
+	in := strings.ToLower(strings.TrimSpace(input))
+	in = strings.ReplaceAll(in, " ", "")
+	in = strings.ReplaceAll(in, "：", ":")
+	return strings.Contains(in, "确认spec") || strings.Contains(in, "开始实施") || strings.Contains(in, "startimplement")
+}
+
+func hasToken(tokens []string, want string) bool {
+	want = strings.ToLower(strings.TrimSpace(want))
+	for _, t := range tokens {
+		if strings.ToLower(strings.TrimSpace(t)) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func loadSpecModeSetting(workspace string) bool {
+	if v, ok := os.LookupEnv("NIBOT_SPEC_MODE"); ok && strings.TrimSpace(v) != "" {
+		vv := strings.ToLower(strings.TrimSpace(v))
+		return vv == "1" || vv == "true" || vv == "yes" || vv == "on"
+	}
+	p := filepath.Join(workspace, "data", "spec_mode.json")
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return false
+	}
+	var v struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return false
+	}
+	return v.Enabled
+}
+
+func saveSpecModeSetting(workspace string, enabled bool) error {
+	p := filepath.Join(workspace, "data", "spec_mode.json")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return err
+	}
+	b, _ := json.MarshalIndent(map[string]any{"enabled": enabled}, "", "  ")
+	return os.WriteFile(p, b, 0o644)
+}
+
+func (c *LLMClient) generateSpecDocs(requirement string) (string, error) {
+	provider := strings.ToLower(strings.TrimSpace(c.Config.Provider))
+	if provider != "ollama" && strings.TrimSpace(c.Config.APIKey) == "" {
+		return "", fmt.Errorf("missing API key for spec generation")
+	}
+	system := "你是一个“Spec 模式”助手：必须先输出规格文档，再等待用户确认后才开始实施。\n\n" +
+		"请根据用户需求生成 3 份 Markdown 文档，并以 JSON 输出：\n" +
+		"{\"slug\":\"...\",\"spec_md\":\"...\",\"tasks_md\":\"...\",\"checklist_md\":\"...\"}\n\n" +
+		"要求：\n" +
+		"- 语言：中文\n" +
+		"- spec_md 包含：Why/What/Impact/Requirements/Non-Goals/安全与隐私边界/回滚策略\n" +
+		"- tasks_md：以任务列表形式拆分可实施步骤\n" +
+		"- checklist_md：验收清单（可勾选）\n" +
+		"- 仅输出 JSON，不要输出其他文字"
+	resp, err := c.Call([]Message{
+		{Role: "system", Content: system},
+		{Role: "user", Content: strings.TrimSpace(requirement)},
+	})
+	if err != nil {
+		return "", err
+	}
+	js := extractJSONBlock(resp)
+	var v struct {
+		Slug        string `json:"slug"`
+		SpecMD      string `json:"spec_md"`
+		TasksMD     string `json:"tasks_md"`
+		ChecklistMD string `json:"checklist_md"`
+	}
+	if err := json.Unmarshal([]byte(js), &v); err != nil {
+		return "", fmt.Errorf("invalid spec JSON: %w", err)
+	}
+	slug := slugify(v.Slug)
+	if slug == "" {
+		slug = "spec-" + time.Now().Format("20060102-150405")
+	}
+	dir := filepath.Join(c.Workspace, "specs", slug)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "spec.md"), []byte(stringsTrimCRLF(v.SpecMD)), 0o644); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "tasks.md"), []byte(stringsTrimCRLF(v.TasksMD)), 0o644); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "checklist.md"), []byte(stringsTrimCRLF(v.ChecklistMD)), 0o644); err != nil {
+		return "", err
+	}
+	return slug, nil
+}
+
+func slugify(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	var b strings.Builder
+	lastDash := false
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if r == '-' || r == '_' || r == ' ' {
+			if !lastDash && b.Len() > 0 {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if len(out) > 60 {
+		out = out[:60]
+		out = strings.Trim(out, "-")
+	}
+	return out
+}
+
+func stringsTrimCRLF(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	return strings.TrimRight(s, "\n") + "\n"
 }
 
 func (c *LLMClient) persistSessionOnExit() {
