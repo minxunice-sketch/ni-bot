@@ -20,6 +20,15 @@ class ChatApp {
         this.statusDot = document.querySelector('.status-dot');
         this.statusText = document.querySelector('.status-text');
         this.languageButtons = document.querySelectorAll('.lang-btn');
+        
+        // Settings elements
+        this.settingsBtn = document.getElementById('settingsBtn');
+        this.settingsModal = document.getElementById('settingsModal');
+        this.closeBtn = document.querySelector('.close-btn');
+        this.tabBtns = document.querySelectorAll('.tab-btn');
+        this.tabContents = document.querySelectorAll('.tab-content');
+        this.configForm = document.getElementById('configForm');
+        this.skillsList = document.getElementById('skillsList');
     }
 
     bindEvents() {
@@ -65,6 +74,35 @@ class ChatApp {
                 this.switchLanguage(lang);
             });
         });
+
+        // Settings events
+        if (this.settingsBtn) {
+            this.settingsBtn.addEventListener('click', () => this.showSettings());
+        }
+
+        if (this.closeBtn) {
+            this.closeBtn.addEventListener('click', () => this.hideSettings());
+        }
+
+        window.addEventListener('click', (e) => {
+            if (e.target === this.settingsModal) {
+                this.hideSettings();
+            }
+        });
+
+        this.tabBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const tabId = btn.getAttribute('data-tab');
+                this.switchTab(tabId);
+            });
+        });
+
+        if (this.configForm) {
+            this.configForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.saveSettings();
+            });
+        }
     }
 
     generateSessionId() {
@@ -208,6 +246,9 @@ class ChatApp {
         
         // 高亮代码块
         this.highlightCodeBlocks(contentDiv);
+        
+        // 保存对话历史
+        this.saveConversationHistory();
     }
 
     formatMessage(content) {
@@ -387,39 +428,172 @@ class ChatApp {
         }
     }
 
-    // 重写 addMessage 方法以自动保存历史
-    addMessage(type, content) {
-        const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${type}`;
+    // Settings Methods
+    showSettings() {
+        this.settingsModal.classList.add('show');
+        this.loadSettings();
+        this.loadSkills();
+    }
+
+    hideSettings() {
+        this.settingsModal.classList.remove('show');
+    }
+
+    switchTab(tabId) {
+        this.tabBtns.forEach(btn => {
+            if (btn.getAttribute('data-tab') === tabId) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+
+        this.tabContents.forEach(content => {
+            if (content.id === `${tabId}Tab`) {
+                content.classList.add('active');
+            } else {
+                content.classList.remove('active');
+            }
+        });
+    }
+
+    async loadSettings() {
+        try {
+            const response = await fetch('/api/config');
+            if (response.ok) {
+                const config = await response.json();
+                // Handle uppercase keys from Go struct
+                document.getElementById('provider').value = config.Provider || '';
+                document.getElementById('baseUrl').value = config.BaseURL || '';
+                document.getElementById('modelName').value = config.ModelName || '';
+                // API Key might be masked or empty
+                document.getElementById('apiKey').value = config.APIKey || '';
+                
+                // Load Policy settings
+                if (config.Policy) {
+                    const p = config.Policy;
+                    const setCheck = (id, val) => {
+                        const el = document.getElementById(id);
+                        if (el) el.checked = val;
+                    };
+                    
+                    setCheck('allow_runtime_exec', p.AllowRuntimeExec);
+                    setCheck('allow_skill_exec', p.AllowSkillExec);
+                    setCheck('allow_skill_install', p.AllowSkillInstall);
+                    setCheck('allow_fs_write', p.AllowFSWrite);
+                    setCheck('allow_memory', p.AllowMemory);
+                }
+            }
+        } catch (error) {
+            console.error('Failed to load config:', error);
+        }
+    }
+
+    async saveSettings() {
+        const config = {
+            Provider: document.getElementById('provider').value,
+            BaseURL: document.getElementById('baseUrl').value,
+            ModelName: document.getElementById('modelName').value,
+            APIKey: document.getElementById('apiKey').value,
+            Policy: {
+                AllowRuntimeExec: document.getElementById('allow_runtime_exec').checked,
+                AllowSkillExec: document.getElementById('allow_skill_exec').checked,
+                AllowSkillInstall: document.getElementById('allow_skill_install').checked,
+                AllowFSWrite: document.getElementById('allow_fs_write').checked,
+                AllowMemory: document.getElementById('allow_memory').checked
+            }
+        };
+
+        try {
+            const response = await fetch('/api/config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(config)
+            });
+
+            if (response.ok) {
+                alert(this.currentLanguage === 'zh' ? '配置已保存' : 'Configuration saved');
+                this.hideSettings();
+            } else {
+                throw new Error('Failed to save config');
+            }
+        } catch (error) {
+            console.error('Failed to save config:', error);
+            alert(this.currentLanguage === 'zh' ? '保存配置失败' : 'Failed to save configuration');
+        }
+    }
+
+    async loadSkills() {
+        try {
+            const response = await fetch('/api/skills');
+            if (response.ok) {
+                const skills = await response.json();
+                this.renderSkills(skills);
+            }
+        } catch (error) {
+            console.error('Failed to load skills:', error);
+        }
+    }
+
+    renderSkills(skills) {
+        this.skillsList.innerHTML = '';
         
-        const avatar = document.createElement('div');
-        avatar.className = 'message-avatar';
-        avatar.innerHTML = type === 'user' ? '👤' : '🤖';
-        
-        const contentDiv = document.createElement('div');
-        contentDiv.className = 'message-content';
-        
-        // 处理代码块和格式化
-        const formattedContent = this.formatMessage(content);
-        contentDiv.innerHTML = formattedContent;
-        
-        messageDiv.appendChild(avatar);
-        messageDiv.appendChild(contentDiv);
-        
-        this.chatMessages.appendChild(messageDiv);
-        this.scrollToBottom();
-        
-        // 高亮代码块
-        this.highlightCodeBlocks(contentDiv);
-        
-        // 保存对话历史
-        this.saveConversationHistory();
+        if (skills.length === 0) {
+            this.skillsList.innerHTML = `<div style="text-align: center; color: var(--text-secondary); padding: 20px;">${this.currentLanguage === 'zh' ? '暂无已安装的技能' : 'No skills installed'}</div>`;
+            return;
+        }
+
+        skills.forEach(skill => {
+            const skillItem = document.createElement('div');
+            skillItem.className = 'skill-item';
+            
+            const isEnabled = skill.enabled;
+            
+            skillItem.innerHTML = `
+                <div class="skill-info">
+                    <span class="skill-name">${skill.name}</span>
+                    <span class="skill-desc">${skill.description || (this.currentLanguage === 'zh' ? '无描述' : 'No description')}</span>
+                </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" ${isEnabled ? 'checked' : ''} onchange="window.chatApp.toggleSkill('${skill.name}', this.checked)">
+                    <span class="slider"></span>
+                </label>
+            `;
+            
+            this.skillsList.appendChild(skillItem);
+        });
+    }
+
+    async toggleSkill(skillName, enabled) {
+        try {
+            const response = await fetch('/api/skills/toggle', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    name: skillName,
+                    enabled: enabled
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to toggle skill');
+            }
+        } catch (error) {
+            console.error('Failed to toggle skill:', error);
+            // Revert the toggle in UI
+            this.loadSkills();
+            alert(this.currentLanguage === 'zh' ? '切换技能状态失败' : 'Failed to toggle skill status');
+        }
     }
 }
 
 // 页面加载完成后初始化
 window.addEventListener('DOMContentLoaded', () => {
-    new ChatApp();
+    window.chatApp = new ChatApp();
 });
 
 // 服务Worker注册（可选）

@@ -16,6 +16,7 @@
                 </h1>
                 
                 <div class="language-switcher">
+                    <button id="settingsBtn" class="icon-btn" title="Settings / 设置">⚙️</button>
                     <button class="lang-btn active" data-lang="zh">中文</button>
                     <button class="lang-btn" data-lang="en">English</button>
                 </div>
@@ -66,6 +67,83 @@
                 </span>
             </div>
         </footer>
+    </div>
+
+    <div id="settingsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 data-en="Settings" data-zh="设置">设置</h2>
+                <span class="close-btn">&times;</span>
+            </div>
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="general" data-en="General" data-zh="通用配置">通用配置</button>
+                <button class="tab-btn" data-tab="skills" data-en="Skills" data-zh="技能管理">技能管理</button>
+            </div>
+            
+            <div id="general" class="tab-content active">
+                <form id="configForm">
+                    <div class="form-group">
+                        <label>Provider</label>
+                        <select name="provider" id="provider">
+                            <option value="openai">OpenAI</option>
+                            <option value="anthropic">Anthropic</option>
+                            <option value="gemini">Gemini</option>
+                            <option value="deepseek">DeepSeek</option>
+                            <option value="ollama">Ollama</option>
+                            <option value="nvidia">NVIDIA</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Base URL</label>
+                        <input type="text" name="base_url" id="base_url" placeholder="https://api.openai.com/v1">
+                    </div>
+                    <div class="form-group">
+                        <label>Model Name</label>
+                        <input type="text" name="model" id="model" placeholder="gpt-4">
+                    </div>
+                    <div class="form-group">
+                        <label>API Key</label>
+                        <input type="password" name="api_key" id="api_key" placeholder="sk-...">
+                    </div>
+                    
+                    <div class="divider"></div>
+                    <h3 data-en="Global Features" data-zh="全局功能开关">全局功能开关</h3>
+                    
+                    <div class="checkbox-group">
+                        <label>
+                            <input type="checkbox" name="allow_runtime_exec" id="allow_runtime_exec">
+                            <span data-en="Enable Runtime Exec" data-zh="启用命令执行">启用命令执行</span>
+                        </label>
+                        <label>
+                            <input type="checkbox" name="allow_skill_exec" id="allow_skill_exec">
+                            <span data-en="Enable Skill Exec" data-zh="启用技能执行">启用技能执行</span>
+                        </label>
+                        <label>
+                            <input type="checkbox" name="allow_skill_install" id="allow_skill_install">
+                            <span data-en="Enable Skill Install (Git)" data-zh="启用技能安装 (Git)">启用技能安装 (Git)</span>
+                        </label>
+                        <label>
+                            <input type="checkbox" name="allow_fs_write" id="allow_fs_write">
+                            <span data-en="Enable File Write" data-zh="启用文件写入">启用文件写入</span>
+                        </label>
+                        <label>
+                            <input type="checkbox" name="allow_memory" id="allow_memory">
+                            <span data-en="Enable Memory" data-zh="启用记忆功能">启用记忆功能</span>
+                        </label>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="save-btn" data-en="Save Changes" data-zh="保存更改">保存更改</button>
+                    </div>
+                </form>
+            </div>
+            
+            <div id="skills" class="tab-content">
+                <div class="skills-list" id="skillsList">
+                    <div class="loading" data-en="Loading skills..." data-zh="正在加载技能...">正在加载技能...</div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="/static/js/chat.js"></script>
