@@ -30,8 +30,9 @@ go run ./cmd/nibot -workspace /Users/mac/ni-bot/workspace
 - 模型基础配置可写 `workspace/data/config.yaml`
 - 与 AI 对话用于执行任务，不用于修改系统环境变量
 
-## 3. 模型基础配置（NVIDIA + Qwen 示例）
+## 3. 模型基础配置
 
+### 3.1 方案 A：NVIDIA + Qwen (Agent 能力强)
 ```bash
 export LLM_PROVIDER="nvidia"
 export LLM_BASE_URL="https://integrate.api.nvidia.com/v1"
@@ -39,6 +40,17 @@ export LLM_MODEL_NAME="qwen/qwen3-next-80b-a3b-instruct"
 export LLM_API_KEY="<YOUR_NVIDIA_API_KEY>"
 export NIBOT_LOG_LEVEL="full"
 ```
+
+### 3.2 方案 B：Kimi (Moonshot)
+```bash
+export LLM_PROVIDER="moonshot"
+export LLM_BASE_URL="https://api.moonshot.cn/v1"
+export LLM_MODEL_NAME="moonshot-v1-8k"
+export LLM_API_KEY="<YOUR_MOONSHOT_API_KEY>"
+export NIBOT_LOG_LEVEL="full"
+```
+（注：Ni bot 默认将 moonshot 识别为 openai 兼容协议，provider 写 moonshot 或 openai 均可）
+
 
 ## 4. 功能开关总表（按需启用）
 
