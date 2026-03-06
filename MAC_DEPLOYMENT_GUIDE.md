@@ -184,6 +184,54 @@ go run ./cmd/nibot -workspace /Users/mac/ni-bot/workspace
 - 保持 `NIBOT_ENABLE_SKILLS="1"` 以便执行 skill
 - 关闭 `NIBOT_ENABLE_GIT` 可减少误安装和安全暴露面
 
+### 5.3 Web 界面启动配置
+
+**安装技能模式：**
+
+```bash
+cd /Users/mac/ni-bot
+
+# 基础模型配置
+export LLM_PROVIDER="nvidia"
+export LLM_BASE_URL="https://integrate.api.nvidia.com/v1"
+export LLM_MODEL_NAME="qwen/qwen3-next-80b-a3b-instruct"
+export LLM_API_KEY="<YOUR_NVIDIA_API_KEY>"
+
+# 关键开关（Web 界面需显式开启）
+export NIBOT_ENABLE_EXEC="1"
+export NIBOT_ENABLE_SKILLS="1"
+export NIBOT_ENABLE_GIT="1"
+export NIBOT_ENABLE_NATIVE_TOOLS="1"
+
+# 启动 Web 服务
+go run ./cmd/web
+```
+
+**日常运行模式：**
+
+```bash
+cd /Users/mac/ni-bot
+
+# 基础模型配置
+export LLM_PROVIDER="nvidia"
+export LLM_BASE_URL="https://integrate.api.nvidia.com/v1"
+export LLM_MODEL_NAME="qwen/qwen3-next-80b-a3b-instruct"
+export LLM_API_KEY="<YOUR_NVIDIA_API_KEY>"
+
+# 关键开关（关闭 Git 安装能力）
+export NIBOT_ENABLE_EXEC="1"
+export NIBOT_ENABLE_SKILLS="1"
+export NIBOT_ENABLE_GIT="0"
+export NIBOT_ENABLE_NATIVE_TOOLS="1"
+
+# 启动 Web 服务
+go run ./cmd/web
+```
+
+说明：
+- Web 界面同样依赖终端环境变量来控制功能开关。
+- **必须**在同一个终端窗口先执行 `export` 再执行 `go run ./cmd/web`。
+
 ## 6. 验证是否生效
 
 ### 6.1 查看开关值

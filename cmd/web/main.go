@@ -10,8 +10,11 @@ import (
 	"time"
 
 	"nibot/internal/agent"
+
 	"github.com/gorilla/websocket"
 )
+
+var globalConfig agent.Config
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
@@ -20,13 +23,13 @@ var upgrader = websocket.Upgrader{
 }
 
 type ChatRequest struct {
-	Message string `json:"message"`
+	Message   string `json:"message"`
 	SessionID string `json:"session_id"`
 }
 
 type ChatResponse struct {
-	Type string `json:"type"`
-	Content string `json:"content"`
+	Type      string `json:"type"`
+	Content   string `json:"content"`
 	Timestamp string `json:"timestamp"`
 }
 
@@ -44,6 +47,27 @@ func main() {
 	os.MkdirAll(filepath.Join(workspace, "memory"), 0o755)
 	os.MkdirAll(filepath.Join(workspace, "data"), 0o755)
 
+	// 加载配置
+	globalConfig = agent.LoadConfig(workspace)
+
+	// 显示启动状态信息 (与 CLI 保持一致)
+	enableExec := os.Getenv("NIBOT_ENABLE_EXEC")
+	enableSkills := os.Getenv("NIBOT_ENABLE_SKILLS")
+
+	getStatusDisplay := func(enabled bool) string {
+		if enabled {
+			return "✅ ON"
+		}
+		return "❌ OFF"
+	}
+
+	log.Printf("🚀 Ni Bot Web Interface started on http://localhost:%s", port)
+	log.Printf("   Open http://localhost:%s in your browser to start chatting", port)
+	log.Printf("   Workspace: %s", workspace)
+	log.Printf("   EXEC: %s", getStatusDisplay(enableExec == "1"))
+	log.Printf("   SKILLS: %s", getStatusDisplay(enableSkills == "1"))
+	log.Printf("   Provider: %s, Model: %s", globalConfig.Provider, globalConfig.ModelName)
+
 	// 设置静态文件服务
 	fs := http.FileServer(http.Dir("./web/static"))
 	http.Handle("/static/", http.StripPrefix("/static/", fs))
@@ -55,9 +79,6 @@ func main() {
 		http.ServeFile(w, r, "./web/templates/index.html")
 	})
 
-	log.Printf("🚀 Ni Bot Web Interface started on http://localhost:%s", port)
-	log.Printf("   Open http://localhost:%s in your browser to start chatting", port)
-	
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatal("Failed to start server:", err)
 	}
@@ -99,7 +120,7 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 
 		// 实时处理消息
 		response := processMessage(msg.Message, msg.SessionID)
-		
+
 		if err := conn.WriteJSON(response); err != nil {
 			break
 		}
@@ -110,10 +131,17 @@ func processMessage(message, sessionID string) ChatResponse {
 	// 创建执行上下文
 	cwd, _ := os.Getwd()
 	workspace := filepath.Join(cwd, "workspace")
-	
+
+	// 使用加载的配置中的策略，而不是默认策略
+	// 如果全局配置未初始化（理论上不会发生），回退到默认
+	policy := globalConfig.Policy
+	if !policy.Loaded {
+		policy = agent.DefaultToolPolicy()
+	}
+
 	ctx := agent.ExecContext{
 		Workspace: workspace,
-		Policy:    agent.DefaultToolPolicy(),
+		Policy:    policy,
 	}
 
 	// 执行AI处理
