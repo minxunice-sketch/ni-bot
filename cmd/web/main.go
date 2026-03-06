@@ -18,8 +18,11 @@ import (
 )
 
 var (
-	globalConfig agent.Config
-	configMutex  sync.RWMutex
+	globalConfig   agent.Config
+	configMutex    sync.RWMutex
+	sessionManager *agent.SessionManager
+	sessionsMutex  sync.Mutex
+	sessions       = make(map[string]*agent.LLMClient)
 )
 
 var upgrader = websocket.Upgrader{
@@ -64,9 +67,10 @@ func main() {
 	// 加载配置
 	reloadConfig(workspace)
 
+	// 初始化 SessionManager
+	sessionManager = agent.NewSessionManager(workspace, nil)
+
 	// 显示启动状态信息 (与 CLI 保持一致)
-	enableExec := os.Getenv("NIBOT_ENABLE_EXEC")
-	enableSkills := os.Getenv("NIBOT_ENABLE_SKILLS")
 
 	getStatusDisplay := func(enabled bool) string {
 		if enabled {
@@ -79,8 +83,14 @@ func main() {
 	log.Printf("🚀 Ni Bot Web Interface started on http://localhost:%s", port)
 	log.Printf("   Open http://localhost:%s in your browser to start chatting", port)
 	log.Printf("   Workspace: %s", workspace)
-	log.Printf("   EXEC: %s", getStatusDisplay(enableExec == "1"))
-	log.Printf("   SKILLS: %s", getStatusDisplay(enableSkills == "1"))
+
+	policy := globalConfig.Policy
+	if !policy.Loaded {
+		policy = agent.DefaultToolPolicy()
+	}
+
+	log.Printf("   EXEC: %s", getStatusDisplay(policy.AllowRuntimeExec))
+	log.Printf("   SKILLS: %s", getStatusDisplay(policy.AllowSkillExec))
 	log.Printf("   Provider: %s, Model: %s", globalConfig.Provider, globalConfig.ModelName)
 	configMutex.RUnlock()
 
@@ -336,44 +346,47 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func processMessage(message, sessionID string) ChatResponse {
-	// 创建执行上下文
 	cwd, _ := os.Getwd()
 	workspace := filepath.Join(cwd, "workspace")
 
-	// 使用加载的配置中的策略，而不是默认策略
+	sessionsMutex.Lock()
+	client, ok := sessions[sessionID]
+	if !ok {
+		systemPrompt, err := agent.ConstructSystemPrompt(workspace)
+		if err != nil {
+			log.Printf("Failed to construct system prompt: %v", err)
+			systemPrompt = "You are a helpful AI assistant."
+		}
+
+		configMutex.RLock()
+		cfg := globalConfig
+		configMutex.RUnlock()
+
+		client = agent.NewLLMClient(cfg, workspace, systemPrompt, sessionManager)
+		sessions[sessionID] = client
+	}
+	sessionsMutex.Unlock()
+
+	// Ensure client uses the latest config
 	configMutex.RLock()
-	policy := globalConfig.Policy
+	client.Config = globalConfig
 	configMutex.RUnlock()
 
-	if !policy.Loaded {
-		policy = agent.DefaultToolPolicy()
-	}
+	// Execute Chat
+	responseContent, err := client.Chat(message)
 
-	ctx := agent.ExecContext{
-		Workspace: workspace,
-		Policy:    policy,
-	}
-
-	// 执行AI处理
-	results := agent.ExecuteCalls(ctx, []agent.ExecCall{
-		{
-			Tool:    "llm.chat",
-			ArgsRaw: fmt.Sprintf(`{"message":"%s","session_id":"%s"}`, message, sessionID),
-		},
-	}, nil)
-
-	// 构建响应
 	var response ChatResponse
-	if len(results) > 0 && results[0].OK {
+	if err == nil {
 		response = ChatResponse{
 			Type:      "assistant",
-			Content:   results[0].Output,
+			Content:   responseContent,
 			Timestamp: time.Now().Format(time.RFC3339),
 		}
 	} else {
+		log.Printf("Chat error: %v", err)
 		response = ChatResponse{
 			Type:      "error",
-			Content:   "Failed to process message",
+			Content:   fmt.Sprintf("Failed to process message: %v", err),
 			Timestamp: time.Now().Format(time.RFC3339),
 		}
 	}

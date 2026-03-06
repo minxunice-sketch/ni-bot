@@ -13,7 +13,6 @@ func LoadConfig(workspace string) Config {
 
 	providerSet := false
 	baseURLSet := false
-	apiKeySet := false
 	modelSet := false
 	logLevelSet := false
 
@@ -28,7 +27,6 @@ func LoadConfig(workspace string) Config {
 		}
 		if strings.TrimSpace(fileCfg.APIKey) != "" {
 			cfg.APIKey = strings.TrimSpace(fileCfg.APIKey)
-			apiKeySet = true
 		}
 		if strings.TrimSpace(fileCfg.ModelName) != "" {
 			cfg.ModelName = strings.TrimSpace(fileCfg.ModelName)
@@ -41,23 +39,22 @@ func LoadConfig(workspace string) Config {
 	}
 
 	if fileCfg, ok := readConfigToml(filepath.Join(workspace, "data", "config.toml")); ok {
-		if !providerSet && strings.TrimSpace(fileCfg.Provider) != "" {
+		if strings.TrimSpace(fileCfg.Provider) != "" {
 			cfg.Provider = strings.TrimSpace(fileCfg.Provider)
 			providerSet = true
 		}
-		if !baseURLSet && strings.TrimSpace(fileCfg.BaseURL) != "" {
+		if strings.TrimSpace(fileCfg.BaseURL) != "" {
 			cfg.BaseURL = strings.TrimSpace(fileCfg.BaseURL)
 			baseURLSet = true
 		}
-		if !apiKeySet && strings.TrimSpace(fileCfg.APIKey) != "" {
+		if strings.TrimSpace(fileCfg.APIKey) != "" {
 			cfg.APIKey = strings.TrimSpace(fileCfg.APIKey)
-			apiKeySet = true
 		}
-		if !modelSet && strings.TrimSpace(fileCfg.ModelName) != "" {
+		if strings.TrimSpace(fileCfg.ModelName) != "" {
 			cfg.ModelName = strings.TrimSpace(fileCfg.ModelName)
 			modelSet = true
 		}
-		if !logLevelSet && strings.TrimSpace(fileCfg.LogLevel) != "" {
+		if strings.TrimSpace(fileCfg.LogLevel) != "" {
 			cfg.LogLevel = strings.TrimSpace(fileCfg.LogLevel)
 			logLevelSet = true
 		}
@@ -77,7 +74,6 @@ func LoadConfig(workspace string) Config {
 	}
 	if v, ok := os.LookupEnv("LLM_API_KEY"); ok && strings.TrimSpace(v) != "" {
 		cfg.APIKey = strings.TrimSpace(v)
-		apiKeySet = true
 	}
 	if v, ok := os.LookupEnv("NIBOT_LOG_LEVEL"); ok && strings.TrimSpace(v) != "" {
 		cfg.LogLevel = strings.TrimSpace(v)
