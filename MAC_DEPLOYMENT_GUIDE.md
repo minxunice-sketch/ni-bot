@@ -100,6 +100,8 @@ export NIBOT_SKILLS_INSTALL_LAYER="upstream"
 
 ## 5. 推荐启动配置（可直接复制）
 
+### 5.1 安装技能时推荐配置
+
 ```bash
 cd /Users/mac/ni-bot
 export LLM_PROVIDER="nvidia"
@@ -119,6 +121,38 @@ export NIBOT_EXEC_SANDBOX="0"
 
 go run ./cmd/nibot -workspace /Users/mac/ni-bot/workspace
 ```
+
+说明：
+
+- 本套配置用于安装或更新 GitHub skills
+- `NIBOT_ENABLE_GIT="1"` 仅在安装阶段需要
+
+### 5.2 日常运行技能推荐配置
+
+```bash
+cd /Users/mac/ni-bot
+export LLM_PROVIDER="nvidia"
+export LLM_BASE_URL="https://integrate.api.nvidia.com/v1"
+export LLM_MODEL_NAME="qwen/qwen3-next-80b-a3b-instruct"
+export LLM_API_KEY="<YOUR_NVIDIA_API_KEY>"
+export NIBOT_LOG_LEVEL="full"
+
+export NIBOT_ENABLE_SKILLS="1"
+export NIBOT_ENABLE_NATIVE_TOOLS="1"
+export NIBOT_ENABLE_GIT="0"
+
+export NIBOT_STORAGE="sqlite"
+export NIBOT_HEALTH_PORT="8082"
+export NIBOT_EXEC_SANDBOX="0"
+
+go run ./cmd/nibot -workspace /Users/mac/ni-bot/workspace
+```
+
+说明：
+
+- 本套配置用于已安装 skills 的日常使用
+- 保持 `NIBOT_ENABLE_SKILLS="1"` 以便执行 skill
+- 关闭 `NIBOT_ENABLE_GIT` 可减少误安装和安全暴露面
 
 ## 6. 验证是否生效
 
