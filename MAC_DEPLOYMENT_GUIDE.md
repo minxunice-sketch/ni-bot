@@ -51,6 +51,16 @@ export NIBOT_LOG_LEVEL="full"
 ```
 （注：Ni bot 默认将 moonshot 识别为 openai 兼容协议，provider 写 moonshot 或 openai 均可）
 
+### 3.3 方案 C：DeepSeek
+```bash
+export LLM_PROVIDER="deepseek"
+export LLM_BASE_URL="https://api.deepseek.com/v1"
+export LLM_MODEL_NAME="deepseek-chat"
+export LLM_API_KEY="<YOUR_DEEPSEEK_API_KEY>"
+export NIBOT_LOG_LEVEL="full"
+```
+（注：DeepSeek V3 使用 `deepseek-chat`；R1 推理模型使用 `deepseek-reasoner`）
+
 
 ## 4. 功能开关总表（按需启用）
 
