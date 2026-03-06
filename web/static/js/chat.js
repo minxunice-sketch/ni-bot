@@ -449,7 +449,7 @@ class ChatApp {
         });
 
         this.tabContents.forEach(content => {
-            if (content.id === `${tabId}Tab`) {
+            if (content.id === tabId) {
                 content.classList.add('active');
             } else {
                 content.classList.remove('active');
@@ -464,10 +464,10 @@ class ChatApp {
                 const config = await response.json();
                 // Handle uppercase keys from Go struct
                 document.getElementById('provider').value = config.Provider || '';
-                document.getElementById('baseUrl').value = config.BaseURL || '';
-                document.getElementById('modelName').value = config.ModelName || '';
+                document.getElementById('base_url').value = config.BaseURL || '';
+                document.getElementById('model').value = config.ModelName || '';
                 // API Key might be masked or empty
-                document.getElementById('apiKey').value = config.APIKey || '';
+                document.getElementById('api_key').value = config.APIKey || '';
                 
                 // Load Policy settings
                 if (config.Policy) {
@@ -492,9 +492,9 @@ class ChatApp {
     async saveSettings() {
         const config = {
             Provider: document.getElementById('provider').value,
-            BaseURL: document.getElementById('baseUrl').value,
-            ModelName: document.getElementById('modelName').value,
-            APIKey: document.getElementById('apiKey').value,
+            BaseURL: document.getElementById('base_url').value,
+            ModelName: document.getElementById('model').value,
+            APIKey: document.getElementById('api_key').value,
             Policy: {
                 AllowRuntimeExec: document.getElementById('allow_runtime_exec').checked,
                 AllowSkillExec: document.getElementById('allow_skill_exec').checked,
