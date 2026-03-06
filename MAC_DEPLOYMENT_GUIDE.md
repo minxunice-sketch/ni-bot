@@ -24,6 +24,14 @@ cd /Users/mac/ni-bot
 go run ./cmd/nibot -workspace /Users/mac/ni-bot/workspace
 ```
 
+### 1.3 启动 Web 界面
+
+```bash
+# 启动 Web 服务
+go run ./cmd/web
+```
+启动后访问：[http://localhost:8080](http://localhost:8080)
+
 ## 2. 配置应在终端还是对话里设置
 
 - 环境变量开关必须在终端设置（`export`）

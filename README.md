@@ -25,8 +25,12 @@ cd ni-bot
 # 自动安装和配置
 ./scripts/setup.sh --auto
 
-# 启动 Ni Bot
+# 启动 Ni Bot (CLI)
 go run ./cmd/nibot
+
+# 启动 Web 界面
+go run ./cmd/web
+# 访问 http://localhost:8080
 ```
 
 或者使用平台专用脚本：
