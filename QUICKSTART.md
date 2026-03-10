@@ -15,8 +15,13 @@ go version
 git clone https://github.com/minxunice-sketch/ni-bot.git
 cd ni-bot
 
-# 直接运行（首次运行会引导生成 workspace/data/config.yaml）
-go run ./cmd/nibot
+# 推荐：使用 Claude Code 风格启动脚本（自动配置权限与环境）
+# Windows PowerShell:
+.\cc.ps1
+
+# macOS / Linux:
+chmod +x cc Claude.sh
+./cc
 ```
 
 ### 3. 首次对话

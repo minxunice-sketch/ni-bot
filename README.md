@@ -6,7 +6,7 @@ Ni bot 是一个极简、文件驱动、可自进化的 AI Agent 原型：身份
 
 ### 🆕 Claude Code 风格启动（推荐）
 
-体验类似 Claude Code 的便捷启动方式，自动启用所有技能：
+体验类似 Claude Code 的便捷启动方式，自动启用所有技能和权限：
 
 **Windows (PowerShell):**
 ```powershell
@@ -18,6 +18,8 @@ Ni bot 是一个极简、文件驱动、可自进化的 AI Agent 原型：身份
 chmod +x cc Claude.sh
 ./cc
 ```
+
+> **注意**：部分高级技能（如 skill-creator）需要 Python 环境。Ni bot 现已支持 `.py` 脚本执行，请确保系统中已安装 Python 3.x。
 
 ### ✨ 新特性：Skill Manager (自主技能管理)
 
