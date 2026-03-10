@@ -4,6 +4,31 @@ Ni bot 是一个极简、文件驱动、可自进化的 AI Agent 原型：身份
 
 ## 🚀 快速开始
 
+### 🆕 Claude Code 风格启动（推荐）
+
+体验类似 Claude Code 的便捷启动方式，自动启用所有技能：
+
+**Windows (PowerShell):**
+```powershell
+.\cc.ps1
+```
+
+**macOS / Linux:**
+```bash
+chmod +x cc Claude.sh
+./cc
+```
+
+### ✨ 新特性：Skill Manager (自主技能管理)
+
+Ni bot 现在具备自主扩展能力！无需手动下载，只需告诉它你需要什么。
+
+- **自动搜索**：告诉 Agent "帮我找一个处理 PDF 的技能"，它会自动搜索 GitHub。
+- **自动安装**：确认后，它会自动克隆并安装技能到 `workspace/skills/`。
+- **无需命令**：完全自然语言驱动。
+
+---
+
 ### 多系统安装指南
 
 我们提供了详细的 [多系统安装指南](INSTALLATION.md)，包含：
