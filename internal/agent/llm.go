@@ -109,40 +109,96 @@ func (c *LLMClient) Chat(userInput string) (string, error) {
 	systemMsg := c.SystemMsg
 	c.mu.RUnlock()
 
-	var responseContent string
+	var finalResponse string
 	var err error
 
-	provider := strings.ToLower(strings.TrimSpace(c.Config.Provider))
-	if provider == "" {
-		provider = "openai"
-	}
-	if provider != "ollama" && strings.TrimSpace(c.Config.APIKey) == "" {
-		responseContent = c.mockRespond(userInput)
+	for i := 0; i < c.MaxToolIters; i++ {
+		// Prepare messages for this turn
+		messages := []Message{{Role: "system", Content: systemMsg}}
+		if auto := buildAutoRecallBlock(c.Workspace, userInput); strings.TrimSpace(auto) != "" {
+			messages = append(messages, Message{Role: "system", Content: auto})
+		}
+		messages = append(messages, c.History...)
+
+		var responseContent string
+
+		// Determine provider and make call
+		provider := strings.ToLower(strings.TrimSpace(c.Config.Provider))
+		if provider == "" {
+			provider = "openai"
+		}
+
+		// Check if we should use Mock mode
+		useMock := false
+		if provider != "ollama" && strings.TrimSpace(c.Config.APIKey) == "" {
+			useMock = true
+		}
+
+		if useMock {
+			// In mock mode, we use the last message content as input
+			lastMsg := ""
+			if len(c.History) > 0 {
+				lastMsg = c.History[len(c.History)-1].Content
+			}
+			responseContent = c.mockRespond(lastMsg)
+		} else {
+			switch provider {
+			case "openai", "deepseek", "nvidia", "nvidia_nim":
+				responseContent, err = c.callOpenAICompatible(messages)
+			case "ollama":
+				responseContent, err = c.callOllama(messages)
+			default:
+				// Fallback to mock if provider unknown
+				lastMsg := ""
+				if len(c.History) > 0 {
+					lastMsg = c.History[len(c.History)-1].Content
+				}
+				responseContent = fmt.Sprintf("[MOCK] Received: %s", lastMsg)
+			}
+		}
+
+		if err != nil {
+			return "", err
+		}
+
+		// Append assistant response
 		c.History = append(c.History, Message{Role: "assistant", Content: redactSecrets(responseContent)})
-		return responseContent, nil
+		finalResponse = responseContent
+
+		// Extract and execute tools
+		calls := ExtractExecCalls(responseContent)
+		if len(calls) == 0 {
+			break
+		}
+
+		// Execute tools
+		ctx := ExecContext{
+			Workspace: c.Workspace,
+			Policy:    c.Config.Policy,
+		}
+		// Pass nil approver for now (assumes auto-approve or trusted environment)
+		results := ExecuteCalls(ctx, calls, nil)
+
+		// Format results
+		var sb strings.Builder
+		sb.WriteString("TOOL_RESULTS:\n")
+		for _, res := range results {
+			sb.WriteString(fmt.Sprintf("- tool: %s\n", res.Tool))
+			if res.OK {
+				// Indent output for YAML-like readability
+				indented := strings.ReplaceAll(res.Output, "\n", "\n    ")
+				sb.WriteString(fmt.Sprintf("  status: ok\n  output: |\n    %s\n", indented))
+			} else {
+				sb.WriteString(fmt.Sprintf("  status: error\n  error: %s\n", res.Error))
+			}
+		}
+		toolOutput := sb.String()
+
+		// Append tool output as user message for next iteration
+		c.History = append(c.History, Message{Role: "user", Content: toolOutput})
 	}
 
-	messages := []Message{{Role: "system", Content: systemMsg}}
-	if auto := buildAutoRecallBlock(c.Workspace, userInput); strings.TrimSpace(auto) != "" {
-		messages = append(messages, Message{Role: "system", Content: auto})
-	}
-	messages = append(messages, c.History...)
-
-	switch provider {
-	case "openai", "deepseek", "nvidia", "nvidia_nim":
-		responseContent, err = c.callOpenAICompatible(messages)
-	case "ollama":
-		responseContent, err = c.callOllama(messages)
-	default:
-		responseContent = fmt.Sprintf("[MOCK] Received: %s\n\nIf you want, I can read memory: [EXEC:fs.read {\"path\":\"memory/facts.md\"}]", userInput)
-	}
-
-	if err != nil {
-		return "", err
-	}
-
-	c.History = append(c.History, Message{Role: "assistant", Content: redactSecrets(responseContent)})
-	return responseContent, nil
+	return finalResponse, nil
 }
 
 func (c *LLMClient) Call(messages []Message) (string, error) {
