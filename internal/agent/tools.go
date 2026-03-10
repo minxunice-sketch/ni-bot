@@ -1128,12 +1128,22 @@ func toolSkillExec(ctx ExecContext, argsRaw string) (string, error) {
 			if len(a.Args) > 0 {
 				argv = append(argv, a.Args...)
 			}
+		} else if strings.HasSuffix(strings.ToLower(a.Script), ".py") {
+			argv = []string{"python", abs}
+			if len(a.Args) > 0 {
+				argv = append(argv, a.Args...)
+			}
 		} else {
 			argv = append([]string{abs}, a.Args...)
 		}
 	} else {
 		if strings.HasSuffix(strings.ToLower(a.Script), ".sh") {
 			argv = []string{"sh", abs}
+			if len(a.Args) > 0 {
+				argv = append(argv, a.Args...)
+			}
+		} else if strings.HasSuffix(strings.ToLower(a.Script), ".py") {
+			argv = []string{"python3", abs}
 			if len(a.Args) > 0 {
 				argv = append(argv, a.Args...)
 			}

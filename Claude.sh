@@ -15,6 +15,11 @@ fi
 
 # Set environment variables
 export NIBOT_ENABLE_SKILLS="1"
+export NIBOT_POLICY_ALLOW_FS_WRITE="true"
+export NIBOT_POLICY_ALLOW_RUNTIME_EXEC="true"
+export NIBOT_POLICY_ALLOW_SKILL_EXEC="true"
+export NIBOT_POLICY_ALLOW_SKILL_INSTALL="true"
+export NIBOT_POLICY_ALLOW_MEMORY="true"
 
 echo "Starting Ni bot (with skills enabled)..."
 echo "Use Ctrl+C to stop."

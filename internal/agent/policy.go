@@ -100,6 +100,12 @@ func LoadToolPolicy(workspace string) ToolPolicy {
 	if v, ok := os.LookupEnv("NIBOT_POLICY_ALLOW_FS_WRITE"); ok && strings.TrimSpace(v) != "" {
 		p.AllowFSWrite = parseBool(v, p.AllowFSWrite)
 	}
+	if v, ok := os.LookupEnv("NIBOT_POLICY_ALLOW_SKILL_INSTALL"); ok && strings.TrimSpace(v) != "" {
+		p.AllowSkillInstall = parseBool(v, p.AllowSkillInstall)
+	}
+	if v, ok := os.LookupEnv("NIBOT_POLICY_ALLOW_MEMORY"); ok && strings.TrimSpace(v) != "" {
+		p.AllowMemory = parseBool(v, p.AllowMemory)
+	}
 	return p
 }
 

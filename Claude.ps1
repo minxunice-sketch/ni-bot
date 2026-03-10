@@ -1,23 +1,16 @@
-# Claude Code-like startup script for Ni bot
-# Usage: ./Claude.ps1
 
-$ErrorActionPreference = "Stop"
+# Claude.ps1 - Startup script for Windows
 
-# Ensure we are in the project root
-$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Definition
-Set-Location $scriptPath
-
-# Check for Go
-if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
-    Write-Error "Go is not installed or not in PATH."
-    exit 1
-}
-
-# Set environment variables
+# Set environment variables for permissions
 $env:NIBOT_ENABLE_SKILLS = "1"
+$env:NIBOT_POLICY_ALLOW_FS_WRITE = "true"
+$env:NIBOT_POLICY_ALLOW_RUNTIME_EXEC = "true"
+$env:NIBOT_POLICY_ALLOW_SKILL_EXEC = "true"
+$env:NIBOT_POLICY_ALLOW_SKILL_INSTALL = "true"
+$env:NIBOT_POLICY_ALLOW_MEMORY = "true"
 
-Write-Output "Starting Ni bot (with skills enabled)..."
-Write-Output "Use Ctrl+C to stop."
+# Determine the directory of the script
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-# Run the web server
-go run cmd/web/main.go
+# Run the bot
+go run "$ScriptDir\cmd\web"
