@@ -201,6 +201,59 @@ func (c *LLMClient) Chat(userInput string) (string, error) {
 	return finalResponse, nil
 }
 
+func (c *LLMClient) ChatOnce(userInput string) (string, error) {
+	c.History = append(c.History, Message{Role: "user", Content: redactSecrets(userInput)})
+
+	c.mu.RLock()
+	systemMsg := c.SystemMsg
+	c.mu.RUnlock()
+
+	messages := []Message{{Role: "system", Content: systemMsg}}
+	if auto := buildAutoRecallBlock(c.Workspace, userInput); strings.TrimSpace(auto) != "" {
+		messages = append(messages, Message{Role: "system", Content: auto})
+	}
+	messages = append(messages, c.History...)
+
+	provider := strings.ToLower(strings.TrimSpace(c.Config.Provider))
+	if provider == "" {
+		provider = "openai"
+	}
+
+	useMock := false
+	if provider != "ollama" && strings.TrimSpace(c.Config.APIKey) == "" {
+		useMock = true
+	}
+
+	var responseContent string
+	var err error
+	if useMock {
+		lastMsg := ""
+		if len(c.History) > 0 {
+			lastMsg = c.History[len(c.History)-1].Content
+		}
+		responseContent = c.mockRespond(lastMsg)
+	} else {
+		switch provider {
+		case "openai", "deepseek", "nvidia", "nvidia_nim":
+			responseContent, err = c.callOpenAICompatible(messages)
+		case "ollama":
+			responseContent, err = c.callOllama(messages)
+		default:
+			lastMsg := ""
+			if len(c.History) > 0 {
+				lastMsg = c.History[len(c.History)-1].Content
+			}
+			responseContent = fmt.Sprintf("[MOCK] Received: %s", lastMsg)
+		}
+	}
+	if err != nil {
+		return "", err
+	}
+
+	c.History = append(c.History, Message{Role: "assistant", Content: redactSecrets(responseContent)})
+	return responseContent, nil
+}
+
 func (c *LLMClient) Call(messages []Message) (string, error) {
 	var responseContent string
 	var err error
@@ -247,12 +300,6 @@ func buildAutoRecallBlock(workspace string, userInput string) string {
 		return ""
 	}
 
-	s, err := OpenSQLiteStore(workspace)
-	if err != nil || s == nil {
-		return ""
-	}
-	defer s.Close()
-
 	scope := strings.TrimSpace(os.Getenv("NIBOT_AUTO_RECALL_SCOPE"))
 	if scope == "" {
 		scope = "global"
@@ -260,10 +307,54 @@ func buildAutoRecallBlock(workspace string, userInput string) string {
 
 	limit := autoRecallLimit()
 	maxBytes := autoRecallMaxBytes()
-	terms := extractRecallTerms(redactSecrets(in), 3)
+	terms := extractRecallTerms(redactSecrets(in), 20)
 	if len(terms) == 0 {
 		return ""
 	}
+
+	var sb strings.Builder
+	wroteAny := false
+
+	memTerms := terms
+	if len(memTerms) > 6 {
+		memTerms = memTerms[:6]
+	}
+	if memBlock := buildAutoRecallMemoriesBlock(workspace, scope, memTerms, limit, maxBytes); strings.TrimSpace(memBlock) != "" {
+		sb.WriteString(memBlock)
+		wroteAny = true
+	}
+
+	remaining := maxBytes
+	if remaining > 0 {
+		remaining = maxBytes - len([]byte(sb.String()))
+		if remaining < 0 {
+			remaining = 0
+		}
+	}
+
+	if autoRecallLearningsEnabled(workspace) && (remaining == 0 || remaining >= 200) {
+		lb := autoRecallLearningsMaxBytes(maxBytes, remaining)
+		if learnBlock := buildAutoRecallLearningsBlock(workspace, terms, lb); strings.TrimSpace(learnBlock) != "" {
+			if wroteAny {
+				sb.WriteString("\n")
+			}
+			sb.WriteString(learnBlock)
+			wroteAny = true
+		}
+	}
+
+	if !wroteAny {
+		return ""
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+func buildAutoRecallMemoriesBlock(workspace string, scope string, terms []string, limit int, maxBytes int) string {
+	s, err := OpenSQLiteStore(workspace)
+	if err != nil || s == nil {
+		return ""
+	}
+	defer s.Close()
 
 	byID := map[int64]MemoryItem{}
 	perTerm := 5
@@ -302,6 +393,184 @@ func buildAutoRecallBlock(workspace string, userInput string) string {
 		sb.WriteString(line)
 	}
 	return strings.TrimRight(sb.String(), "\n")
+}
+
+func autoRecallLearningsEnabled(workspace string) bool {
+	if v, ok := os.LookupEnv("NIBOT_AUTO_RECALL_LEARNINGS"); ok && strings.TrimSpace(v) != "" {
+		return parseBool(v, false)
+	}
+	abs := filepath.Join(workspace, ".learnings")
+	if st, err := os.Stat(abs); err == nil && st.IsDir() {
+		return true
+	}
+	return false
+}
+
+func autoRecallLearningsMaxBytes(totalMax int, remaining int) int {
+	if v := strings.TrimSpace(os.Getenv("NIBOT_AUTO_RECALL_LEARNINGS_MAX_BYTES")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			if remaining > 0 && n > remaining {
+				n = remaining
+			}
+			if totalMax > 0 && n > totalMax {
+				n = totalMax
+			}
+			if n < 200 {
+				n = 200
+			}
+			if n > 4000 {
+				n = 4000
+			}
+			return n
+		}
+	}
+	n := totalMax / 2
+	if n < 200 {
+		n = 200
+	}
+	if n > 1200 {
+		n = 1200
+	}
+	if remaining > 0 && n > remaining {
+		n = remaining
+	}
+	if totalMax > 0 && n > totalMax {
+		n = totalMax
+	}
+	return n
+}
+
+func buildAutoRecallLearningsBlock(workspace string, terms []string, maxBytes int) string {
+	files := []string{
+		filepath.Join(workspace, ".learnings", "LEARNINGS.md"),
+		filepath.Join(workspace, ".learnings", "ERRORS.md"),
+		filepath.Join(workspace, ".learnings", "FEATURE_REQUESTS.md"),
+	}
+
+	type cand struct {
+		score int
+		file  string
+		text  string
+	}
+	var cands []cand
+	for _, abs := range files {
+		b, err := readFileTail(abs, 256*1024)
+		if err != nil || len(b) == 0 {
+			continue
+		}
+		txt := strings.ReplaceAll(string(b), "\r\n", "\n")
+		sections := extractMarkdownSections(txt)
+		for _, sec := range sections {
+			s := sectionScore(sec, terms)
+			if s <= 0 {
+				continue
+			}
+			cands = append(cands, cand{score: s, file: filepath.Base(abs), text: sec})
+		}
+		if len(cands) == 0 {
+			s := sectionScore(txt, terms)
+			if s > 0 {
+				cands = append(cands, cand{score: s, file: filepath.Base(abs), text: txt})
+			}
+		}
+	}
+
+	if len(cands) == 0 {
+		return ""
+	}
+
+	sort.Slice(cands, func(i, j int) bool {
+		if cands[i].score != cands[j].score {
+			return cands[i].score > cands[j].score
+		}
+		return len([]rune(cands[i].text)) > len([]rune(cands[j].text))
+	})
+
+	var sb strings.Builder
+	sb.WriteString("=== RELEVANT LEARNINGS ===\n")
+	seen := map[string]struct{}{}
+	for _, it := range cands {
+		key := it.file + ":" + previewText(it.text, 80)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		line := fmt.Sprintf("- file=%s score=%d: %s\n", it.file, it.score, previewText(it.text, 360))
+		if maxBytes > 0 && sb.Len()+len([]byte(line)) > maxBytes {
+			break
+		}
+		sb.WriteString(line)
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+func extractMarkdownSections(s string) []string {
+	lines := strings.Split(s, "\n")
+	var sections []string
+	var cur []string
+	flush := func() {
+		if len(cur) == 0 {
+			return
+		}
+		sec := strings.TrimSpace(strings.Join(cur, "\n"))
+		cur = nil
+		if sec != "" {
+			sections = append(sections, sec)
+		}
+	}
+	for _, ln := range lines {
+		if strings.HasPrefix(ln, "## ") {
+			flush()
+		}
+		cur = append(cur, ln)
+	}
+	flush()
+	return sections
+}
+
+func sectionScore(s string, terms []string) int {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	low := strings.ToLower(s)
+	score := 0
+	for _, t := range terms {
+		tt := strings.TrimSpace(t)
+		if tt == "" {
+			continue
+		}
+		n := strings.Count(low, strings.ToLower(tt))
+		score += n
+	}
+	return score
+}
+
+func readFileTail(path string, maxBytes int64) ([]byte, error) {
+	if maxBytes <= 0 {
+		maxBytes = 256 * 1024
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	size := st.Size()
+	if size <= 0 {
+		return nil, nil
+	}
+	if size <= maxBytes {
+		return io.ReadAll(f)
+	}
+	_, err = f.Seek(-maxBytes, io.SeekEnd)
+	if err != nil {
+		return nil, err
+	}
+	return io.ReadAll(f)
 }
 
 func autoRecallEnabled() bool {
@@ -382,9 +651,37 @@ func extractRecallTerms(s string, maxTerms int) []string {
 		return nil
 	}
 
+	var expanded []string
+	expanded = append(expanded, tokens...)
+	for _, t := range tokens {
+		if !containsHanRunes(t) {
+			continue
+		}
+		rs := []rune(t)
+		if len(rs) <= 8 {
+			continue
+		}
+		win := 6
+		if len(rs) < win {
+			win = len(rs)
+		}
+		added := 0
+		stride := 2
+		if len(rs) <= 12 {
+			stride = 1
+		}
+		for i := 0; i+win <= len(rs) && added < 12; i += stride {
+			sub := strings.TrimSpace(string(rs[i : i+win]))
+			if len([]rune(sub)) >= 2 {
+				expanded = append(expanded, sub)
+				added++
+			}
+		}
+	}
+
 	seen := map[string]struct{}{}
 	var uniq []string
-	for _, t := range tokens {
+	for _, t := range expanded {
 		low := strings.ToLower(t)
 		if _, ok := seen[low]; ok {
 			continue
@@ -397,6 +694,15 @@ func extractRecallTerms(s string, maxTerms int) []string {
 		uniq = uniq[:maxTerms]
 	}
 	return uniq
+}
+
+func containsHanRunes(s string) bool {
+	for _, r := range s {
+		if unicode.In(r, unicode.Han) {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *LLMClient) mockRespond(userInput string) string {
@@ -1255,7 +1561,7 @@ func (c *LLMClient) Loop(inputReader io.Reader, outputWriter io.Writer, logger *
 		nextUserInput := input
 		lastAssistant := ""
 		for iter := 0; iter < c.MaxToolIters; iter++ {
-			resp, err := c.Chat(nextUserInput)
+			resp, err := c.ChatOnce(nextUserInput)
 			if err != nil {
 				fmt.Fprintf(outputWriter, "\nError: %v\n", err)
 				writeLog(logger, fmt.Sprintf("\n**Error**: %v\n", err))

@@ -28,7 +28,6 @@ func DiscoverSkillScripts(workspace string) ([]SkillScript, error) {
 	skillNames := map[string]struct{}{}
 	for _, r := range []string{overridesRoot, localRoot, upstreamRoot} {
 		names, _ := listSkillDirs(r)
-		fmt.Printf("DEBUG: DiscoverSkills listing %s: %v\n", r, names) // DEBUG
 		for _, n := range names {
 			skillNames[n] = struct{}{}
 		}
@@ -74,7 +73,6 @@ func DiscoverSkills(workspace string) ([]Skill, error) {
 	skillNames := map[string]struct{}{}
 	for _, r := range []string{overridesRoot, localRoot, upstreamRoot} {
 		names, _ := listSkillDirs(r)
-		fmt.Printf("DEBUG: DiscoverSkills listing %s: %v\n", r, names) // DEBUG
 		for _, n := range names {
 			skillNames[n] = struct{}{}
 		}
@@ -199,7 +197,6 @@ func firstNonEmpty(values ...string) string {
 }
 
 func discoverScriptsInDir(dir string) ([]string, error) {
-	fmt.Printf("DEBUG: discoverScriptsInDir checking %s\n", dir) // DEBUG
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err

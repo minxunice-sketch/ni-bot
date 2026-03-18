@@ -8,17 +8,17 @@ import (
 )
 
 type ToolPolicy struct {
-	Loaded           bool
-	AllowFSWrite      bool
-	AllowRuntimeExec  bool
-	AllowSkillExec    bool
-	AllowSkillInstall bool
-	AllowMemory       bool
-	RequireFSWrite    bool
-	RequireRuntimeExec bool
-	RequireSkillExec  bool
+	Loaded              bool
+	AllowFSWrite        bool
+	AllowRuntimeExec    bool
+	AllowSkillExec      bool
+	AllowSkillInstall   bool
+	AllowMemory         bool
+	RequireFSWrite      bool
+	RequireRuntimeExec  bool
+	RequireSkillExec    bool
 	RequireSkillInstall bool
-	RequireMemory     bool
+	RequireMemory       bool
 
 	AllowedRuntimePrefixes []string
 	AllowedWritePrefixes   []string
@@ -28,18 +28,18 @@ type ToolPolicy struct {
 
 func DefaultToolPolicy() ToolPolicy {
 	return ToolPolicy{
-		Loaded:            true,
-		AllowFSWrite:       true,
-		AllowRuntimeExec:   true,
-		AllowSkillExec:     true,
-		AllowSkillInstall:  true,
-		AllowMemory:        true,
-		RequireFSWrite:     true,
-		RequireRuntimeExec: true,
-		RequireSkillExec:   true,
-		RequireSkillInstall: true,
-		RequireMemory:      true,
-		AllowedWritePrefixes: []string{"memory/", "skills/", "logs/"},
+		Loaded:               true,
+		AllowFSWrite:         true,
+		AllowRuntimeExec:     true,
+		AllowSkillExec:       true,
+		AllowSkillInstall:    true,
+		AllowMemory:          true,
+		RequireFSWrite:       true,
+		RequireRuntimeExec:   true,
+		RequireSkillExec:     true,
+		RequireSkillInstall:  true,
+		RequireMemory:        true,
+		AllowedWritePrefixes: []string{"memory/", "skills/", "logs/", ".learnings/"},
 	}
 }
 
@@ -152,7 +152,7 @@ func (p ToolPolicy) AllowsRuntimeCommand(command string) bool {
 		return false
 	}
 	first := strings.ToLower(strings.TrimSpace(tokens[0]))
-	
+
 	// 白名单命令检查 - 优先检查白名单
 	for _, pref := range p.AllowedRuntimePrefixes {
 		pref = strings.ToLower(strings.TrimSpace(pref))
@@ -160,19 +160,19 @@ func (p ToolPolicy) AllowsRuntimeCommand(command string) bool {
 			return true
 		}
 	}
-	
+
 	// 黑名单命令检查 - 拒绝危险命令
 	if isDangerousCommand(command) {
 		return false
 	}
-	
+
 	return false
 }
 
 // 危险命令黑名单检查
 func isDangerousCommand(command string) bool {
 	command = strings.ToLower(strings.TrimSpace(command))
-	
+
 	// 拒绝危险系统命令
 	dangerousPatterns := []string{
 		"rm -rf /",
@@ -193,13 +193,13 @@ func isDangerousCommand(command string) bool {
 		"halt",
 		"poweroff",
 	}
-	
+
 	for _, pattern := range dangerousPatterns {
 		if strings.Contains(command, pattern) {
 			return true
 		}
 	}
-	
+
 	// 拒绝包含敏感路径的命令
 	sensitivePaths := []string{
 		"/etc/",
@@ -213,13 +213,13 @@ func isDangerousCommand(command string) bool {
 		"c:\\program files\\",
 		"c:\\programdata\\",
 	}
-	
+
 	for _, path := range sensitivePaths {
 		if strings.Contains(command, path) {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -282,16 +282,16 @@ func (p ToolPolicy) AllowsSkillExec(skill, script string) bool {
 }
 
 type policyFile struct {
-	AllowFSWrite       *bool
-	AllowRuntimeExec   *bool
-	AllowSkillExec     *bool
-	AllowSkillInstall  *bool
-	AllowMemory        *bool
-	RequireFSWrite     *bool
-	RequireRuntimeExec *bool
-	RequireSkillExec   *bool
-	RequireSkillInstall *bool
-	RequireMemory      *bool
+	AllowFSWrite           *bool
+	AllowRuntimeExec       *bool
+	AllowSkillExec         *bool
+	AllowSkillInstall      *bool
+	AllowMemory            *bool
+	RequireFSWrite         *bool
+	RequireRuntimeExec     *bool
+	RequireSkillExec       *bool
+	RequireSkillInstall    *bool
+	RequireMemory          *bool
 	AllowedRuntimePrefixes []string
 	AllowedWritePrefixes   []string
 	AllowedSkillNames      []string

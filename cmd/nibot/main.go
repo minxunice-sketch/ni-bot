@@ -138,6 +138,12 @@ func main() {
 		log.Printf("Warning: No API Key provided for %s", cfg.Provider)
 	}
 
+	policy := cfg.Policy
+	if !policy.Loaded {
+		policy = agent.DefaultToolPolicy()
+	}
+	agent.StartWeeklyLearning(workspace, policy)
+
 	// Initialize session manager
 	sessionManager := agent.NewSessionManager(workspace, healthMonitor)
 	session := sessionManager.StartNewSession()

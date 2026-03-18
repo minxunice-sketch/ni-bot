@@ -18,6 +18,7 @@ Ni bot 是一个极简、文件驱动、可自进化的 AI Agent 原型：身份
 chmod +x cc Claude.sh
 ./cc
 ```
+*按 `Ctrl+C` 即可停止运行。*
 
 > **注意**：部分高级技能（如 skill-creator）需要 Python 环境。Ni bot 现已支持 `.py` 脚本执行，请确保系统中已安装 Python 3.x。
 

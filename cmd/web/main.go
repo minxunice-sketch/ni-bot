@@ -94,6 +94,8 @@ func main() {
 	log.Printf("   Provider: %s, Model: %s", globalConfig.Provider, globalConfig.ModelName)
 	configMutex.RUnlock()
 
+	agent.StartWeeklyLearning(workspace, policy)
+
 	// 设置静态文件服务
 	fs := http.FileServer(http.Dir("./web/static"))
 	http.Handle("/static/", http.StripPrefix("/static/", fs))
